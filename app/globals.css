@@ -5,7 +5,7 @@
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     sans-serif;
   background: #f0f2f5;
   color: #333;
@@ -41,6 +41,7 @@ label {
 }
 
 input[type="text"],
+input[type="url"],
 textarea {
   width: 100%;
   padding: 0.75rem;
@@ -52,6 +53,7 @@ textarea {
 }
 
 input[type="text"]:focus,
+input[type="url"]:focus,
 textarea:focus {
   outline: none;
   border-color: #4361ee;
@@ -86,10 +88,35 @@ button:disabled {
   background: #3a56d4;
 }
 
+.btn-generate {
+  background: #e67e22;
+  color: #fff;
+}
+
+.btn-generate:hover:not(:disabled) {
+  background: #cf6d17;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.5rem;
+}
+
+.btn-export {
+  background: #6c757d;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.btn-export:hover {
+  background: #5a6268;
+}
+
 .btn-send {
   background: #2ec4b6;
   color: #fff;
-  margin-top: 1rem;
 }
 
 .btn-send:hover:not(:disabled) {

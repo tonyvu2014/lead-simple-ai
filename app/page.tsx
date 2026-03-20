@@ -8,6 +8,12 @@ interface Business {
 }
 
 export default function Home() {
+  const [productName, setProductName] = useState("");
+  const [productDescription, setProductDescription] = useState("");
+  const [productLink, setProductLink] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [generated, setGenerated] = useState(false);
+
   const [prompt, setPrompt] = useState("");
   const [subject, setSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
@@ -19,6 +25,46 @@ export default function Home() {
     message: string;
   } | null>(null);
   const [showResults, setShowResults] = useState(false);
+
+  function getWordCount(text: string) {
+    return text.trim().split(/\s+/).filter(Boolean).length;
+  }
+
+  async function handleGenerate(e: FormEvent) {
+    e.preventDefault();
+    const wordCount = getWordCount(productDescription);
+    if (wordCount < 50 || wordCount > 300) {
+      alert(`Product description must be between 50 and 300 words. Current: ${wordCount} words.`);
+      return;
+    }
+
+    setGenerating(true);
+    try {
+      const res = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productName, productDescription, productLink }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Generation failed.");
+      }
+
+      setPrompt(data.targetAudience || "");
+      setSubject(data.emailSubject || "");
+      setEmailBody(data.emailBody || "");
+      setGenerated(true);
+      setShowResults(false);
+      setBusinesses([]);
+      setSendStatus(null);
+    } catch (err: any) {
+      alert("Error: " + err.message);
+    } finally {
+      setGenerating(false);
+    }
+  }
 
   async function handleSearch(e: FormEvent) {
     e.preventDefault();
@@ -46,6 +92,21 @@ export default function Home() {
     } finally {
       setSearching(false);
     }
+  }
+
+  function handleExportCSV() {
+    const header = "#,Business Name,Email";
+    const rows = businesses.map((b, i) =>
+      `${i + 1},"${b.name.replace(/"/g, '""')}","${b.email.replace(/"/g, '""')}"`
+    );
+    const csv = [header, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "leads.csv";
+    link.click();
+    URL.revokeObjectURL(url);
   }
 
   async function handleSend() {
@@ -82,66 +143,134 @@ export default function Home() {
     }
   }
 
+  const wordCount = getWordCount(productDescription);
+
   return (
     <div className="container">
-      <h1>Find Leads and Send Cold Outreach Emails</h1>
+      <h1>Find Relevant Leads For Your Product</h1>
 
-      <form className="card" onSubmit={handleSearch}>
-        <label htmlFor="searchPrompt">
-          Business Search Prompt <span style={{ color: "red" }}>*</span>
+      <form className="card" onSubmit={handleGenerate}>
+        <label htmlFor="productName">
+          Product Name <span style={{ color: "red" }}>*</span>
         </label>
         <input
           type="text"
-          id="searchPrompt"
-          placeholder="e.g. Small and Medium Business Plumbing Services in St Marys, NSW"
+          id="productName"
+          placeholder="e.g. LeadSimple AI"
           required
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
+          value={productName}
+          onChange={(e) => setProductName(e.target.value)}
         />
 
-        <label htmlFor="emailSubject">
-          Email Subject <span style={{ color: "red" }}>*</span>
-        </label>
-        <input
-          type="text"
-          id="emailSubject"
-          placeholder="e.g. Partnership Opportunity"
-          required
-          value={subject}
-          onChange={(e) => setSubject(e.target.value)}
-        />
-
-        <label htmlFor="emailBody">
-          Email Body <span style={{ color: "red" }}>*</span>
+        <label htmlFor="productDescription">
+          Product Description <span style={{ color: "red" }}>*</span>
+          <span style={{ fontWeight: 400, color: "#888", marginLeft: "0.5rem" }}>
+            ({wordCount}/300 words, min 50)
+          </span>
         </label>
         <textarea
-          id="emailBody"
-          placeholder="Enter the email content you want to send to the businesses..."
+          id="productDescription"
+          placeholder="Describe your product in 50 to 300 words..."
           required
-          value={emailBody}
-          onChange={(e) => setEmailBody(e.target.value)}
+          value={productDescription}
+          onChange={(e) => setProductDescription(e.target.value)}
         />
 
-        <button className="btn-search" type="submit" disabled={searching}>
-          {searching ? (
+        <label htmlFor="productLink">Product Link</label>
+        <input
+          type="url"
+          id="productLink"
+          placeholder="e.g. https://yourproduct.com"
+          value={productLink}
+          onChange={(e) => setProductLink(e.target.value)}
+        />
+
+        <button className="btn-generate" type="submit" disabled={generating}>
+          {generating ? (
             <>
               <span className="spinner" />
-              Searching...
+              Generating...
             </>
           ) : (
-            "Search"
+            "Generate"
           )}
         </button>
       </form>
 
+      {generated && (
+        <form className="card" onSubmit={handleSearch}>
+          <label htmlFor="searchPrompt">
+            Target Audience <span style={{ color: "red" }}>*</span>
+          </label>
+          <input
+            type="text"
+            id="searchPrompt"
+            placeholder="e.g. Small and Medium Business Plumbing Services in St Marys, NSW"
+            required
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+          />
+          <p style={{ color: "#888", fontSize: "0.85rem", marginTop: "-0.75rem", marginBottom: "1rem" }}>
+            The more specific the target audience, the better the leads.
+          </p>
+
+          <label htmlFor="emailSubject">
+            Email Subject <span style={{ color: "red" }}>*</span>
+          </label>
+          <input
+            type="text"
+            id="emailSubject"
+            placeholder="e.g. Partnership Opportunity"
+            required
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+          />
+
+          <label htmlFor="emailBody">
+            Email Body <span style={{ color: "red" }}>*</span>
+          </label>
+          <textarea
+            id="emailBody"
+            placeholder="Enter the email content you want to send to the businesses..."
+            required
+            value={emailBody}
+            onChange={(e) => setEmailBody(e.target.value)}
+          />
+
+          <button className="btn-search" type="submit" disabled={searching}>
+            {searching ? (
+              <>
+                <span className="spinner" />
+                Searching...
+              </>
+            ) : (
+              "Search"
+            )}
+          </button>
+        </form>
+      )}
+
       {showResults && (
         <div className="card">
-          <h2 style={{ marginBottom: "0.5rem" }}>Search Results</h2>
-          <p style={{ color: "#666", marginBottom: "0.5rem" }}>
-            {businesses.length === 0
-              ? "No businesses found."
-              : `Found ${businesses.length} business(es)`}
-          </p>
+          <div className="card-header">
+            <div>
+              <h2 style={{ marginBottom: "0.5rem" }}>Search Results</h2>
+              <p style={{ color: "#666" }}>
+                {businesses.length === 0
+                  ? "No businesses found."
+                  : `Found ${businesses.length} business(es)`}
+              </p>
+            </div>
+            {businesses.length > 0 && (
+              <button
+                className="btn-export"
+                onClick={handleExportCSV}
+                type="button"
+              >
+                Export CSV
+              </button>
+            )}
+          </div>
 
           {businesses.length > 0 && (
             <>
@@ -168,15 +297,16 @@ export default function Home() {
                 className="btn-send"
                 onClick={handleSend}
                 disabled={sending}
+                style={{ marginTop: "1rem" }}
               >
-                {sending ? (
-                  <>
-                    <span className="spinner" />
-                    Sending...
-                  </>
-                ) : (
-                  "Send Emails"
-                )}
+                  {sending ? (
+                    <>
+                      <span className="spinner" />
+                      Sending...
+                    </>
+                  ) : (
+                    "Send Emails"
+                  )}
               </button>
             </>
           )}
