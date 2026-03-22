@@ -33,8 +33,8 @@ export default function Home() {
   async function handleGenerate(e: FormEvent) {
     e.preventDefault();
     const wordCount = getWordCount(productDescription);
-    if (wordCount < 50 || wordCount > 300) {
-      alert(`Product description must be between 50 and 300 words. Current: ${wordCount} words.`);
+    if (wordCount < 20 || wordCount > 300) {
+      alert(`Product description must be between 20 and 300 words. Current: ${wordCount} words.`);
       return;
     }
 
@@ -147,7 +147,11 @@ export default function Home() {
 
   return (
     <div className="container">
-      <h1>Find Relevant Leads For Your Product</h1>
+      <h1>Find and Contact Relevant Leads For Your Product</h1>
+      <div style={{ margin: "0 0 2rem 0", fontSize: "0.95rem", color: "#555", textAlign: "center" }}>
+        This is just a quick demo of SimpleLead.AI features. The complete product will have more features, including sending or scheduling cold and follow-up emails to leads, product management and using your own email. Register your interest at{' '}
+        <a href="https://www.leadsimple.ai" target="_blank" rel="noopener noreferrer">https://www.leadsimple.ai</a>{' '}to get early access to the product when it is launched.
+      </div>
 
       <form className="card" onSubmit={handleGenerate}>
         <label htmlFor="productName">
@@ -165,12 +169,12 @@ export default function Home() {
         <label htmlFor="productDescription">
           Product Description <span style={{ color: "red" }}>*</span>
           <span style={{ fontWeight: 400, color: "#888", marginLeft: "0.5rem" }}>
-            ({wordCount}/300 words, min 50)
+            ({wordCount}/300 words, min 20)
           </span>
         </label>
         <textarea
           id="productDescription"
-          placeholder="Describe your product in 50 to 300 words..."
+          placeholder="Describe your product in 20 to 300 words..."
           required
           value={productDescription}
           onChange={(e) => setProductDescription(e.target.value)}
@@ -293,21 +297,27 @@ export default function Home() {
                 </tbody>
               </table>
 
-              <button
-                className="btn-send"
-                onClick={handleSend}
-                disabled={sending}
-                style={{ marginTop: "1rem" }}
-              >
-                  {sending ? (
-                    <>
-                      <span className="spinner" />
-                      Sending...
-                    </>
-                  ) : (
-                    "Send Emails"
-                  )}
-              </button>
+              <p style={{ marginTop: "1rem", fontSize: "0.9rem", color: "#555" }}>
+                To send or schedule emails to thousands more leads, register for early access to SimpleLead.AI at{" "}
+                <a href="https://www.leadsimple.ai" target="_blank" rel="noopener noreferrer">
+                  https://www.leadsimple.ai
+                </a>
+              </p>
+              <div style={{ display: "flex", gap: "1rem", marginTop: "0.75rem" }}>
+                <button
+                  className="btn-send"
+                  disabled
+                >
+                  Send Emails
+                </button>
+                <button
+                  className="btn-schedule"
+                  type="button"
+                  disabled
+                >
+                  Schedule Emails
+                </button>
+              </div>
             </>
           )}
 

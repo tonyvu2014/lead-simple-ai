@@ -29,9 +29,9 @@ export async function POST(request: Request) {
   }
 
   const wordCount = productDescription.trim().split(/\s+/).length;
-  if (wordCount < 50 || wordCount > 300) {
+  if (wordCount < 20 || wordCount > 300) {
     return NextResponse.json(
-      { error: "Product description must be between 50 and 300 words." },
+      { error: "Product description must be between 20 and 300 words." },
       { status: 400 }
     );
   }
