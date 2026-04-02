@@ -14,6 +14,18 @@ export default function Home() {
   const [generating, setGenerating] = useState(false);
   const [generated, setGenerated] = useState(false);
 
+  // Handler for Skip button
+  function handleSkip() {
+    setPrompt("");
+    setSubject("");
+    setEmailBody("");
+    setGenerated(true);
+    setShowResults(false);
+    setBusinesses([]);
+    setSendStatus(null);
+    setManualEmails("");
+  }
+
   const [prompt, setPrompt] = useState("");
   const [subject, setSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
@@ -25,6 +37,9 @@ export default function Home() {
     message: string;
   } | null>(null);
   const [showResults, setShowResults] = useState(false);
+  const [manualEmails, setManualEmails] = useState("");
+  const [manualMode, setManualMode] = useState(false);
+  const [manualEmailsError, setManualEmailsError] = useState("");
 
   function getWordCount(text: string) {
     return text.trim().split(/\s+/).filter(Boolean).length;
@@ -72,6 +87,17 @@ export default function Home() {
     setShowResults(false);
     setSendStatus(null);
 
+    // If prompt (target audience) is empty, switch to manual mode
+    if (!prompt.trim()) {
+      setManualMode(true);
+      setBusinesses([]);
+      setShowResults(true);
+      setSearching(false);
+      return;
+    } else {
+      setManualMode(false);
+    }
+
     try {
       const res = await fetch("/api/search", {
         method: "POST",
@@ -109,14 +135,44 @@ export default function Home() {
     URL.revokeObjectURL(url);
   }
 
+
+  function isValidEmail(email: string) {
+    // Basic email regex
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  }
+
   async function handleSend() {
     if (!emailBody.trim()) {
       alert("Please enter email body content.");
       return;
     }
-    if (businesses.length === 0) {
-      alert("No businesses to send emails to.");
-      return;
+    let emailsToSend: Business[] = businesses;
+    if (manualMode) {
+      // Parse manualEmails (comma separated)
+      const emails = manualEmails
+        .split(",")
+        .map((e) => e.trim())
+        .filter((e) => e.length > 0);
+      if (emails.length === 0) {
+        setManualEmailsError("Please enter at least one email address.");
+        return;
+      }
+      // Validate all emails
+      const invalidEmails = emails.filter((email) => !isValidEmail(email));
+      if (invalidEmails.length > 0) {
+        setManualEmailsError(
+          `Invalid email address${invalidEmails.length > 1 ? 'es' : ''}: ` +
+          invalidEmails.join(", ")
+        );
+        return;
+      }
+      setManualEmailsError("");
+      emailsToSend = emails.map((email) => ({ name: "", email }));
+    } else {
+      if (businesses.length === 0) {
+        alert("No businesses to send emails to.");
+        return;
+      }
     }
 
     setSending(true);
@@ -126,7 +182,7 @@ export default function Home() {
       const res = await fetch("/api/send-emails", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ businesses, emailBody, subject }),
+        body: JSON.stringify({ businesses: emailsToSend, emailBody, subject }),
       });
 
       const data = await res.json();
@@ -189,33 +245,43 @@ export default function Home() {
           onChange={(e) => setProductLink(e.target.value)}
         />
 
-        <button className="btn-generate" type="submit" disabled={generating}>
-          {generating ? (
-            <>
-              <span className="spinner" />
-              Generating...
-            </>
-          ) : (
-            "Generate"
-          )}
-        </button>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          <button className="btn-generate" type="submit" disabled={generating}>
+            {generating ? (
+              <>
+                <span className="spinner" />
+                Generating...
+              </>
+            ) : (
+              "Generate"
+            )}
+          </button>
+          <button
+            type="button"
+            className="btn-skip"
+            style={{ background: "#eee", color: "#333", border: "1px solid #ccc" }}
+            onClick={handleSkip}
+            disabled={generating}
+          >
+            Skip
+          </button>
+        </div>
       </form>
 
       {generated && (
         <form className="card" onSubmit={handleSearch}>
           <label htmlFor="searchPrompt">
-            Target Audience <span style={{ color: "red" }}>*</span>
+            Target Audience
           </label>
           <input
             type="text"
             id="searchPrompt"
             placeholder="e.g. Small and Medium Business Plumbing Services in St Marys, NSW"
-            required
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
           />
           <p style={{ color: "#888", fontSize: "0.85rem", marginTop: "-0.75rem", marginBottom: "1rem" }}>
-            The more specific the target audience, the better the leads.
+            The more specific the target audience, the better the leads. Leave blank to enter emails manually.
           </p>
 
           <label htmlFor="emailSubject">
@@ -245,10 +311,10 @@ export default function Home() {
             {searching ? (
               <>
                 <span className="spinner" />
-                Searching...
+                Continue
               </>
             ) : (
-              "Search"
+              "Continue"
             )}
           </button>
         </form>
@@ -258,14 +324,18 @@ export default function Home() {
         <div className="card">
           <div className="card-header">
             <div>
-              <h2 style={{ marginBottom: "0.5rem" }}>Search Results</h2>
+              <h2 style={{ marginBottom: "0.5rem" }}>Results</h2>
               <p style={{ color: "#666" }}>
-                {businesses.length === 0
-                  ? "No businesses found."
-                  : `Found ${businesses.length} business(es)`}
+                {manualMode
+                  ? (manualEmails.trim().length === 0
+                      ? "No emails entered."
+                      : `Found ${manualEmails.split(",").filter(e => e.trim()).length} email(s)`)
+                  : (businesses.length === 0
+                      ? "No businesses found."
+                      : `Found ${businesses.length} business(es)`)}
               </p>
             </div>
-            {businesses.length > 0 && (
+            {!manualMode && businesses.length > 0 && (
               <button
                 className="btn-export"
                 onClick={handleExportCSV}
@@ -276,7 +346,7 @@ export default function Home() {
             )}
           </div>
 
-          {businesses.length > 0 && (
+          {!manualMode && businesses.length > 0 && (
             <>
               <table>
                 <thead>
@@ -306,9 +376,11 @@ export default function Home() {
               <div style={{ display: "flex", gap: "1rem", marginTop: "0.75rem" }}>
                 <button
                   className="btn-send"
-                  disabled
+                  onClick={handleSend}
+                  type="button"
+                  disabled={sending}
                 >
-                  Send Emails
+                  {sending ? "Sending..." : "Send Emails"}
                 </button>
                 <button
                   className="btn-schedule"
@@ -319,6 +391,38 @@ export default function Home() {
                 </button>
               </div>
             </>
+          )}
+
+          {manualMode && (
+            <div style={{ marginTop: "1rem" }}>
+              <label htmlFor="manualEmails">
+                Enter Emails (comma separated) <span style={{ color: "red" }}>*</span>
+              </label>
+              <textarea
+                id="manualEmails"
+                placeholder="e.g. user1@email.com, user2@email.com"
+                required
+                value={manualEmails}
+                onChange={(e) => {
+                  setManualEmails(e.target.value);
+                  setManualEmailsError("");
+                }}
+                style={{ minHeight: 60, width: "100%", marginBottom: manualEmailsError ? 0 : "1rem" }}
+              />
+              {manualEmailsError && (
+                <div style={{ color: "red", fontSize: "0.95rem", margin: "0.5rem 0 1rem 0" }}>
+                  {manualEmailsError}
+                </div>
+              )}
+              <button
+                className="btn-send"
+                onClick={handleSend}
+                type="button"
+                disabled={sending}
+              >
+                {sending ? "Sending..." : "Send Emails"}
+              </button>
+            </div>
           )}
 
           {sendStatus && (
