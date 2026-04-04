@@ -205,8 +205,8 @@ export default function Home() {
     <div className="container">
       <h1>Find and Contact Relevant Leads For Your Product</h1>
       <div style={{ margin: "0 0 2rem 0", fontSize: "0.95rem", color: "#555", textAlign: "center" }}>
-        This is just a quick demo of SimpleLead.AI features. The complete product will have more features, including sending or scheduling cold and follow-up emails to leads, product management and using your own email. Register your interest at{' '}
-        <a href="https://www.leadsimple.ai" target="_blank" rel="noopener noreferrer">https://www.leadsimple.ai</a>{' '}to get early access to the product when it is launched.
+        This is just a quick demo of leaddaily.app features. The complete product will have more features, including sending or scheduling cold and follow-up emails to leads, product management and using your own email. Register your interest at{' '}
+          <a href="https://www.leaddaily.app" target="_blank" rel="noopener noreferrer">https://www.leaddaily.ai</a>{' '}to get early access to the product when it is launched.
       </div>
 
       <form className="card" onSubmit={handleGenerate}>
@@ -216,7 +216,7 @@ export default function Home() {
         <input
           type="text"
           id="productName"
-          placeholder="e.g. LeadSimple AI"
+          placeholder="e.g. LeadDaily App"
           required
           value={productName}
           onChange={(e) => setProductName(e.target.value)}
@@ -368,9 +368,9 @@ export default function Home() {
               </table>
 
               <p style={{ marginTop: "1rem", fontSize: "0.9rem", color: "#555" }}>
-                To send or schedule emails to thousands more leads, register for early access to SimpleLead.AI at{" "}
-                <a href="https://www.leadsimple.ai" target="_blank" rel="noopener noreferrer">
-                  https://www.leadsimple.ai
+                To send or schedule emails to thousands more leads, register for early access to LeadDaily.App at{" "}
+                  <a href="https://www.leaddaily.app" target="_blank" rel="noopener noreferrer">
+                    https://www.leaddaily.app
                 </a>
               </p>
               <div style={{ display: "flex", gap: "1rem", marginTop: "0.75rem" }}>

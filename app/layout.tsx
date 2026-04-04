@@ -5,7 +5,7 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "LeadSimple.AI",
+  title: "LeadDaily",
   description:
     "Find leads and send cold outreach emails using AI-powered business search",
 };

@@ -1,4 +1,4 @@
-# LeadSimple.AI
+# LeadDaily
 
 A Next.js web app that uses OpenAI to find businesses matching your criteria and sends cold outreach emails to them in bulk.
 
