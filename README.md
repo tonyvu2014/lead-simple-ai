@@ -99,7 +99,7 @@ This is a Next.js app that deploys to Vercel with zero configuration.
 ## Project Structure
 
 ```
-lead-simple-ai/
+lead-daily-app/
 ├── app/
 │   ├── layout.tsx              # Root layout
 │   ├── page.tsx                # Main page (client component)
