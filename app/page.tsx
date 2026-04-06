@@ -206,7 +206,7 @@ export default function Home() {
       <h1>Find and Email Relevant Leads For Your Product</h1>
       <div style={{ margin: "0 0 2rem 0", fontSize: "0.95rem", color: "#555", textAlign: "center" }}>
         This is just a quick demo of leaddaily.app. The full version will include smarter, more powerful features to help you grow leads with ease—like sending or scheduling cold and follow‑up emails, managing multiple products, and using your own email. Register your interest at{' '}
-          <a href="https://www.leaddaily.app" target="_blank" rel="noopener noreferrer">https://www.leaddaily.app</a>{' '}to get early access to the product when it is launched.
+          <a href="https://www.leaddaily.app" target="_blank" rel="noopener noreferrer">https://www.leaddaily.app</a>{' '}to get 40% discount and early access to the product when it is launched.
       </div>
 
       <form className="card" onSubmit={handleGenerate}>
