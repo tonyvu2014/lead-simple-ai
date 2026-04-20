@@ -31,9 +31,14 @@ export async function POST(request: Request) {
     host: process.env.SMTP_HOST,
     port: Number(process.env.SMTP_PORT) || 587,
     secure: false,
+    requireTLS: true,
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
+    },
+    tls: {
+      minVersion: "TLSv1.2",
+      servername: process.env.SMTP_HOST,
     },
   });
 
@@ -44,7 +49,7 @@ export async function POST(request: Request) {
       await transporter.sendMail({
         from: process.env.EMAIL_FROM,
         to: biz.email,
-        subject: subject || "Hello from AI Cold Outreach Marketer",
+        subject: subject || "Hello from LeadDaily.App",
         text: emailBody,
       });
       results.push({ email: biz.email, status: "sent" });
@@ -56,6 +61,8 @@ export async function POST(request: Request) {
 
   const sentCount = results.filter((r) => r.status === "sent").length;
   const failedCount = results.filter((r) => r.status === "failed").length;
+
+  console.log('Results:', results);
 
   return NextResponse.json({
     message: `Email sending complete. ${sentCount} sent, ${failedCount} failed.`,
