@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, FormEvent } from "react";
-import { useSearchParams } from "next/navigation";
+import { useParams } from "next/navigation";
 
 interface Business {
   name: string;
@@ -16,8 +16,8 @@ interface Contact {
 }
 
 export default function Home() {
-  const searchParams = useSearchParams();
-  const isProductLocked = !!searchParams.get("product_id");
+  const { product_id: productIdParam } = useParams<{ product_id: string }>();
+  const isProductLocked = !!productIdParam;
   const EMPTY_CONTACTS: Contact[] = [
     { id: "__local_COLD", type: "COLD", subject: "", content: "" },
     { id: "__local_FOLLOW-UP", type: "FOLLOW-UP", subject: "", content: "" },
@@ -39,7 +39,7 @@ export default function Home() {
   const [generated, setGenerated] = useState(false);
 
   useEffect(() => {
-    const productId = searchParams.get("product_id");
+    const productId = productIdParam;
     if (!productId) return;
 
     Promise.all([
@@ -62,7 +62,7 @@ export default function Home() {
         }
       })
       .catch(() => {});
-  }, [searchParams]);
+  }, [productIdParam]);
 
   // Handler for Skip button
   function handleSkip() {
@@ -185,7 +185,7 @@ export default function Home() {
   }
 
   async function handleSaveLeads() {
-    const productId = searchParams.get("product_id");
+    const productId = productIdParam;
     if (!productId) return;
     setSavingLeads(true);
     try {
@@ -252,7 +252,7 @@ export default function Home() {
       const res = await fetch("/api/send-emails", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ businesses: emailsToSend, subject: coldContact.subject, emailBody: coldContact.content, product_id: searchParams.get("product_id") ?? undefined, product_name: productName || undefined }),
+        body: JSON.stringify({ businesses: emailsToSend, subject: coldContact.subject, emailBody: coldContact.content, product_id: productIdParam ?? undefined, product_name: productName || undefined }),
       });
 
       const data = await res.json();
