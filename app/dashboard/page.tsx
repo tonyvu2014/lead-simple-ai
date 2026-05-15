@@ -561,7 +561,7 @@ export default function Dashboard() {
                           Lead Management
                         </button>
                         <a
-                          href={`/${encodeURIComponent(p.id)}`}
+                          href={`/leads/${encodeURIComponent(p.id)}`}
                           className="btn-action btn-action--find-leads"
                         >
                           Find Leads
