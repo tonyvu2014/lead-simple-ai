@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, FormEvent } from "react";
+import { useState, useEffect, FormEvent, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
 interface Business {
@@ -15,7 +15,7 @@ interface Contact {
   content: string;
 }
 
-export default function Home() {
+function LeadsContent() {
   const searchParams = useSearchParams();
   const isProductLocked = !!searchParams.get("product_id");
   const EMPTY_CONTACTS: Contact[] = [
@@ -767,5 +767,13 @@ export default function Home() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function Page() {
+  return (
+    <Suspense>
+      <LeadsContent />
+    </Suspense>
   );
 }
