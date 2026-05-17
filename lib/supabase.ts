@@ -59,6 +59,16 @@ export interface Contact {
   content: string;
 }
 
+export interface EmailConfig {
+  id: string;
+  product_id: string;
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+  email_from: string;
+}
+
 export type ScheduledEmailStatus = "pending" | "sent" | "failed";
 
 export interface ScheduledEmail {

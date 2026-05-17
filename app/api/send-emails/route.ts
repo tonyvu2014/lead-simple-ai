@@ -3,6 +3,59 @@ import nodemailer from "nodemailer";
 import { supabaseAdmin } from "@/lib/supabase";
 import { requireOwnedProduct } from "@/lib/auth-server";
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function extractEmailAddress(value?: string | null) {
+  if (!value) return null;
+  const trimmed = value.trim();
+  const match = trimmed.match(/<([^>]+)>/);
+  const candidate = (match?.[1] ?? trimmed).trim();
+  return EMAIL_REGEX.test(candidate) ? candidate : null;
+}
+
+function quoteDisplayName(value: string) {
+  return value.replace(/"/g, "").trim();
+}
+
+function resolveSender(
+  rawFrom: string | undefined,
+  fallbackEmail: string | undefined,
+  displayName?: string,
+  forceDisplayName?: boolean
+) {
+  const envelopeFrom = extractEmailAddress(rawFrom) ?? extractEmailAddress(fallbackEmail);
+  if (!envelopeFrom) {
+    throw new Error("No valid sender email address available for SMTP envelope.");
+  }
+
+  if (forceDisplayName && displayName?.trim()) {
+    return {
+      fromHeader: `"${quoteDisplayName(displayName)}" <${envelopeFrom}>`,
+      envelopeFrom,
+    };
+  }
+
+  if (extractEmailAddress(rawFrom)) {
+    return { fromHeader: rawFrom!.trim(), envelopeFrom };
+  }
+
+  if (rawFrom?.trim()) {
+    return {
+      fromHeader: `"${quoteDisplayName(rawFrom)}" <${envelopeFrom}>`,
+      envelopeFrom,
+    };
+  }
+
+  if (displayName?.trim()) {
+    return {
+      fromHeader: `"${quoteDisplayName(displayName)}" <${envelopeFrom}>`,
+      envelopeFrom,
+    };
+  }
+
+  return { fromHeader: envelopeFrom, envelopeFrom };
+}
+
 interface Business {
   name: string;
   email: string;
@@ -62,31 +115,61 @@ export async function POST(request: Request) {
     }
   }
 
+  // Resolve SMTP config: use product's custom config if it exists, else fall back to env vars
+  let smtpHost = process.env.SMTP_HOST;
+  let smtpPort = Number(process.env.SMTP_PORT) || 587;
+  let smtpUser = process.env.SMTP_USER;
+  let smtpPass = process.env.SMTP_PASS;
+  let emailFrom = process.env.EMAIL_FROM;
+  let hasCustomEmailConfig = false;
+
+  if (product_id) {
+    const { data: emailConfig } = await supabaseAdmin
+      .from("email_config")
+      .select("host, port, username, password, email_from")
+      .eq("product_id", product_id)
+      .maybeSingle();
+
+    if (emailConfig) {
+      smtpHost = emailConfig.host;
+      smtpPort = emailConfig.port;
+      smtpUser = emailConfig.username;
+      smtpPass = emailConfig.password;
+      emailFrom = emailConfig.email_from;
+      hasCustomEmailConfig = true;
+    }
+  }
+
   const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT) || 587,
+    host: smtpHost,
+    port: smtpPort,
     secure: false,
     requireTLS: true,
     auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
+      user: smtpUser,
+      pass: smtpPass,
     },
     tls: {
       minVersion: "TLSv1.2",
-      servername: process.env.SMTP_HOST,
+      servername: smtpHost,
     },
   });
 
   const results: { email: string; status: string }[] = [];
 
+  const sender = resolveSender(
+    emailFrom,
+    smtpUser ?? process.env.EMAIL_FROM,
+    product_name,
+    !hasCustomEmailConfig
+  );
+
   for (const biz of eligibleBusinesses) {
     try {
-      const fromAddress = product_name
-        ? `"${product_name}" <${process.env.EMAIL_FROM}>`
-        : process.env.EMAIL_FROM;
       const personalizedBody = emailBody.replace(/\{\{name\}\}/gi, biz.name || "");
       await transporter.sendMail({
-        from: fromAddress,
+        from: sender.fromHeader,
+        envelope: { from: sender.envelopeFrom, to: biz.email },
         to: biz.email,
         subject: subject || "Hello from LeadDaily.App",
         text: personalizedBody,

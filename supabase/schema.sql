@@ -116,3 +116,19 @@ CREATE TABLE scheduled_emails (
 );
 
 CREATE INDEX idx_scheduled_emails_status_send_at ON scheduled_emails(status, send_at);
+
+-- ============================================================
+-- EMAIL CONFIG  (per-product SMTP config — 1-to-1 with products)
+-- ============================================================
+
+CREATE TABLE email_config (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  product_id   UUID NOT NULL UNIQUE REFERENCES products(id) ON DELETE CASCADE,
+  host         TEXT NOT NULL,
+  port         INT NOT NULL DEFAULT 587,
+  username     TEXT NOT NULL,
+  password     TEXT NOT NULL,
+  email_from   TEXT NOT NULL
+);
+
+CREATE INDEX idx_email_config_product_id ON email_config(product_id);

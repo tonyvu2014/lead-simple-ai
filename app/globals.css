@@ -422,6 +422,15 @@ tr:hover {
   background: #dde3ff;
 }
 
+.btn-action--email-config {
+  background: #f0f9ff;
+  color: #0284c7;
+}
+
+.btn-action--email-config:hover {
+  background: #e0f2fe;
+}
+
 .btn-action--leads {
   background: #f0fdf4;
   color: #16a34a;

@@ -3,16 +3,18 @@
 import Image from "next/image";
 import { useState, useEffect, useCallback, FormEvent, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Product, Contact, Lead, ContactType, LeadStatus } from "@/lib/supabase";
+import { Product, Contact, Lead, ContactType, LeadStatus, EmailConfig } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
 import { fetchWithAuth } from "@/lib/auth-client";
 
 type ProductForm = { name: string; description: string; url: string };
 type ContactForm = { type: ContactType; subject: string; content: string };
-type PanelMode = "contacts" | "leads";
+type EmailConfigForm = { host: string; port: string; username: string; password: string; email_from: string };
+type PanelMode = "contacts" | "leads" | "email-config";
 
 const EMPTY_PRODUCT: ProductForm = { name: "", description: "", url: "" };
 const EMPTY_CONTACT: ContactForm = { type: "COLD", subject: "", content: "" };
+const EMPTY_EMAIL_CONFIG: EmailConfigForm = { host: "", port: "587", username: "", password: "", email_from: "" };
 
 const STATUS_LABELS: Record<LeadStatus, string> = {
   COLD: "Cold",
@@ -25,7 +27,7 @@ const CONTACT_TYPE_NOTES: Record<ContactType, string> = {
   "FOLLOW-UP": "Sent to leads 5 days after the first-touch email to remind, re-engage or move the conversation forward",
 };
 
-function ActionIcon({ kind }: { kind: "contacts" | "leads" | "find" | "edit" | "delete" | "send" }) {
+function ActionIcon({ kind }: { kind: "contacts" | "leads" | "find" | "edit" | "delete" | "send" | "email-config" }) {
   switch (kind) {
     case "contacts":
       return (
@@ -121,6 +123,18 @@ function ActionIcon({ kind }: { kind: "contacts" | "leads" | "find" | "edit" | "
           />
         </svg>
       );
+    case "email-config":
+      return (
+        <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" className="btn-action__icon">
+          <circle cx="10" cy="10" r="2.75" stroke="currentColor" strokeWidth="1.5" />
+          <path
+            d="M10 3.5v1.25M10 15.25V16.5M16.5 10h-1.25M4.75 10H3.5M14.95 5.05l-.88.88M5.93 14.07l-.88.88M14.95 14.95l-.88-.88M5.93 5.93l-.88-.88"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+        </svg>
+      );
   }
 }
 
@@ -155,6 +169,15 @@ function DashboardContent() {
   const [expandedSlots, setExpandedSlots] = useState<Set<ContactType>>(new Set());
   const [activeSlot, setActiveSlot] = useState<ContactType | null>(null);
 
+  // ── Email Config ──────────────────────────────────────────────
+  const [emailConfig, setEmailConfig] = useState<EmailConfig | null>(null);
+  const [emailConfigLoading, setEmailConfigLoading] = useState(false);
+  const [showEmailConfigForm, setShowEmailConfigForm] = useState(false);
+  const [emailConfigForm, setEmailConfigForm] = useState<EmailConfigForm>(EMPTY_EMAIL_CONFIG);
+  const [emailConfigSaving, setEmailConfigSaving] = useState(false);
+  const [testDestinationEmail, setTestDestinationEmail] = useState("");
+  const [sendingTestEmail, setSendingTestEmail] = useState(false);
+
   // ── Leads ─────────────────────────────────────────────────────
   const [leads, setLeads] = useState<Lead[]>([]);
   const [leadsLoading, setLeadsLoading] = useState(false);
@@ -163,6 +186,7 @@ function DashboardContent() {
   const [deleteTarget, setDeleteTarget] = useState<
     | { type: "product"; product: Product }
     | { type: "contact"; contact: Contact }
+    | { type: "email-config"; product: Product }
     | null
   >(null);
   const [leadStatusFilter, setLeadStatusFilter] = useState<LeadStatus | "ALL">("ALL");
@@ -265,16 +289,35 @@ function DashboardContent() {
     }
   }, [selectedProduct]);
 
+  // ── Fetch email config ───────────────────────────────────────
+  const fetchEmailConfig = useCallback(async () => {
+    if (!selectedProduct) return;
+    setEmailConfigLoading(true);
+    setError(null);
+    try {
+      const res = await fetchWithAuth(`/api/email-config?product_id=${encodeURIComponent(selectedProduct.id)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to fetch email config.");
+      setEmailConfig(data.email_config ?? null);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setEmailConfigLoading(false);
+    }
+  }, [selectedProduct]);
+
   useEffect(() => {
     if (selectedProduct) {
       if (panelMode === "contacts") fetchContacts();
-      else fetchLeads();
+      else if (panelMode === "leads") fetchLeads();
+      else if (panelMode === "email-config") fetchEmailConfig();
     } else {
       setContacts([]);
       setLeads([]);
+      setEmailConfig(null);
       setLeadPage(1);
     }
-  }, [selectedProduct, panelMode, fetchContacts, fetchLeads]);
+  }, [selectedProduct, panelMode, fetchContacts, fetchLeads, fetchEmailConfig]);
 
   useEffect(() => {
     const requestedProductId = searchParams.get("product_id");
@@ -296,6 +339,7 @@ function DashboardContent() {
     setSelectedProduct(product);
     setPanelMode(mode);
     setShowContactForm(false);
+    setShowEmailConfigForm(false);
   }
 
   // ── Product CRUD ─────────────────────────────────────────────
@@ -377,12 +421,19 @@ function DashboardContent() {
         if (!res.ok) throw new Error(data.error || "Failed to delete product.");
         if (selectedProduct?.id === product.id) setSelectedProduct(null);
         await fetchProducts();
-      } else {
+      } else if (deleteTarget.type === "contact") {
         const { contact } = deleteTarget;
         const res = await fetchWithAuth(`/api/contacts/${contact.id}`, { method: "DELETE" });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Failed to delete contact.");
         await fetchContacts();
+      } else if (deleteTarget.type === "email-config") {
+        const { product } = deleteTarget;
+        const res = await fetchWithAuth(`/api/email-config/${encodeURIComponent(product.id)}`, { method: "DELETE" });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to delete email config.");
+        setEmailConfig(null);
+        setShowEmailConfigForm(false);
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Unknown error");
@@ -516,6 +567,87 @@ function DashboardContent() {
 
   async function handleDeleteContact(contact: Contact) {
     setDeleteTarget({ type: "contact", contact });
+  }
+
+  // ── Email Config CRUD ─────────────────────────────────────────
+  function openEmailConfigForm() {
+    setEmailConfigForm(
+      emailConfig
+        ? { host: emailConfig.host, port: String(emailConfig.port), username: emailConfig.username, password: emailConfig.password, email_from: emailConfig.email_from }
+        : EMPTY_EMAIL_CONFIG
+    );
+    setShowEmailConfigForm(true);
+  }
+
+  function cancelEmailConfigForm() {
+    setShowEmailConfigForm(false);
+    setEmailConfigForm(EMPTY_EMAIL_CONFIG);
+  }
+
+  async function handleSaveEmailConfig(e: FormEvent) {
+    e.preventDefault();
+    if (!selectedProduct) return;
+    setEmailConfigSaving(true);
+    setError(null);
+    try {
+      const payload = {
+        host: emailConfigForm.host.trim(),
+        port: Number(emailConfigForm.port) || 587,
+        username: emailConfigForm.username.trim(),
+        password: emailConfigForm.password,
+        email_from: emailConfigForm.email_from.trim(),
+      };
+      const res = emailConfig
+        ? await fetchWithAuth(`/api/email-config/${encodeURIComponent(selectedProduct.id)}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          })
+        : await fetchWithAuth("/api/email-config", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ product_id: selectedProduct.id, ...payload }),
+          });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to save email config.");
+      setEmailConfig(data.email_config);
+      setShowEmailConfigForm(false);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setEmailConfigSaving(false);
+    }
+  }
+
+  function handleDeleteEmailConfig() {
+    if (!selectedProduct) return;
+    setDeleteTarget({ type: "email-config", product: selectedProduct });
+  }
+
+  async function handleSendTestEmail(e: FormEvent) {
+    e.preventDefault();
+    if (!selectedProduct || !testDestinationEmail.trim()) return;
+
+    setSendingTestEmail(true);
+    setError(null);
+    try {
+      const res = await fetchWithAuth("/api/email-config/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          product_id: selectedProduct.id,
+          to: testDestinationEmail.trim(),
+          product_name: selectedProduct.name,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to send test email.");
+      setModalMessage(`Test email sent to ${testDestinationEmail.trim()}.`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setSendingTestEmail(false);
+    }
   }
 
   // ── Send cold email ─────────────────────────────────────────
@@ -706,11 +838,19 @@ function DashboardContent() {
                       <div className="item-card__panel-btns">
                         <button
                           type="button"
+                          className={`btn-action btn-action--email-config${isSelected && panelMode === "email-config" ? " btn-action--active" : ""}`}
+                          onClick={() => openPanel(p, "email-config")}
+                        >
+                          <ActionIcon kind="email-config" />
+                          Configure Email Server
+                        </button>
+                        <button
+                          type="button"
                           className={`btn-action btn-action--contacts${isSelected && panelMode === "contacts" ? " btn-action--active" : ""}`}
                           onClick={() => openPanel(p, "contacts")}
                         >
                           <ActionIcon kind="contacts" />
-                          Email Templates
+                          Manage Emails
                         </button>
                         <button
                           type="button"
@@ -718,7 +858,7 @@ function DashboardContent() {
                           onClick={() => openPanel(p, "leads")}
                         >
                           <ActionIcon kind="leads" />
-                          Lead Management
+                          Manage Leads
                         </button>
                         <a
                           href={`/leads/${encodeURIComponent(p.id)}`}
@@ -868,6 +1008,132 @@ function DashboardContent() {
                       );
                     })}
                   </ul>
+                )}
+              </>
+            ) : panelMode === "email-config" ? (
+              <>
+                <div className="panel-header">
+                  <div>
+                    <h2>Email Server Config</h2>
+                    <p className="panel-subheader">for <strong>{selectedProduct.name}</strong></p>
+                  </div>
+                </div>
+
+                {showEmailConfigForm ? (
+                  <form className="inline-form" onSubmit={handleSaveEmailConfig}>
+                    <h3 style={{ marginBottom: "0.75rem" }}>{emailConfig ? "Edit Email Server" : "Add Email Server"}</h3>
+                    <label>SMTP Host *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. smtp.gmail.com"
+                      value={emailConfigForm.host}
+                      onChange={(e) => setEmailConfigForm({ ...emailConfigForm, host: e.target.value })}
+                    />
+                    <label>SMTP Port</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      placeholder="587"
+                      value={emailConfigForm.port}
+                      onChange={(e) => setEmailConfigForm({ ...emailConfigForm, port: e.target.value })}
+                    />
+                    <label>Username *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="your@email.com"
+                      value={emailConfigForm.username}
+                      onChange={(e) => setEmailConfigForm({ ...emailConfigForm, username: e.target.value })}
+                    />
+                    <label>Password *</label>
+                    <input
+                      type="password"
+                      required
+                      autoComplete="new-password"
+                      placeholder="••••••••"
+                      value={emailConfigForm.password}
+                      onChange={(e) => setEmailConfigForm({ ...emailConfigForm, password: e.target.value })}
+                    />
+                    <label>From *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. LeadDaily Sales"
+                      value={emailConfigForm.email_from}
+                      onChange={(e) => setEmailConfigForm({ ...emailConfigForm, email_from: e.target.value })}
+                    />
+                    <div style={{ display: "flex", gap: "0.5rem" }}>
+                      <button className="btn-search" type="submit" disabled={emailConfigSaving}>
+                        {emailConfigSaving ? "Saving..." : "Save"}
+                      </button>
+                      <button type="button" className="btn-cancel" onClick={cancelEmailConfigForm}>
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                ) : emailConfigLoading ? (
+                  <p className="loading-text">Loading…</p>
+                ) : emailConfig ? (
+                  <div className="item-card" style={{ marginTop: "0.75rem" }}>
+                    <div className="item-card__body">
+                      <div className="item-card__title" style={{ marginBottom: "0.5rem" }}>SMTP Configuration</div>
+                      <div className="item-card__sub">Host: <strong>{emailConfig.host}</strong></div>
+                      <div className="item-card__sub">Port: <strong>{emailConfig.port}</strong></div>
+                      <div className="item-card__sub">Username: <strong>{emailConfig.username}</strong></div>
+                      <div className="item-card__sub">Password: <strong>{'•'.repeat(8)}</strong></div>
+                      <div className="item-card__sub">From: <strong>{emailConfig.email_from}</strong></div>
+                    </div>
+                    <div className="item-card__actions">
+                      <button
+                        type="button"
+                        className="btn-action btn-action--edit"
+                        onClick={openEmailConfigForm}
+                        style={{ alignSelf: "flex-end", width: "9.5rem" }}
+                      >
+                        <ActionIcon kind="edit" />
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-action btn-action--delete"
+                        onClick={handleDeleteEmailConfig}
+                        style={{ alignSelf: "flex-end", width: "9.5rem" }}
+                      >
+                        <ActionIcon kind="delete" />
+                        Delete
+                      </button>
+                      <form
+                        onSubmit={handleSendTestEmail}
+                        style={{ marginTop: "0.5rem", width: "100%", display: "flex", alignItems: "stretch", gap: "0.5rem" }}
+                      >
+                        <input
+                          type="email"
+                          required
+                          placeholder="Test destination email"
+                          value={testDestinationEmail}
+                          onChange={(e) => setTestDestinationEmail(e.target.value)}
+                          style={{ marginBottom: 0, flex: 1 }}
+                        />
+                        <button
+                          type="submit"
+                          className="btn-action btn-action--send-email"
+                          disabled={sendingTestEmail}
+                          style={{ width: "9.5rem" }}
+                        >
+                          {sendingTestEmail ? "Sending..." : "Send Test Email"}
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: "0.75rem" }}>
+                    <p className="empty-text" style={{ marginBottom: "1rem" }}>No email server configured. Emails will use LeadDaily&apos;s default server.</p>
+                    <button type="button" className="btn-generate" onClick={openEmailConfigForm}>
+                      + Add Email Server
+                    </button>
+                  </div>
                 )}
               </>
             ) : (
@@ -1068,6 +1334,8 @@ function DashboardContent() {
             <p className="modal-box__message">
               {deleteTarget.type === "product"
                 ? `Delete "${deleteTarget.product.name}"? All its leads and contacts will also be deleted.`
+                : deleteTarget.type === "email-config"
+                ? `Remove email server config for "${deleteTarget.product.name}"? LeadDaily's default server will be used instead.`
                 : `Delete contact email "${deleteTarget.contact.subject}"?`}
             </p>
             <div style={{ display: "flex", gap: "0.75rem" }}>
