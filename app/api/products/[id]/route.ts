@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { requireOwnedProduct } from "@/lib/auth-server";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  const ownership = await requireOwnedProduct(request, id);
+  if ("response" in ownership) return ownership.response;
 
   const { data, error } = await supabaseAdmin
     .from("products")
@@ -25,6 +29,10 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  const ownership = await requireOwnedProduct(request, id);
+  if ("response" in ownership) return ownership.response;
+
   const body = await request.json();
   const { name, description, url, daily_schedule_enabled } = body;
 
@@ -52,10 +60,13 @@ export async function PUT(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+
+  const ownership = await requireOwnedProduct(request, id);
+  if ("response" in ownership) return ownership.response;
 
   const { error } = await supabaseAdmin.from("products").delete().eq("id", id);
 

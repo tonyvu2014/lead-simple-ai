@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import nodemailer from "nodemailer";
 import { supabaseAdmin } from "@/lib/supabase";
+import { requireOwnedProduct } from "@/lib/auth-server";
 
 interface Business {
   name: string;
@@ -28,6 +29,11 @@ export async function POST(request: Request) {
       { error: "Email body is required." },
       { status: 400 }
     );
+  }
+
+  if (product_id) {
+    const ownership = await requireOwnedProduct(request, product_id);
+    if ("response" in ownership) return ownership.response;
   }
 
   // If a product_id is provided, skip leads that are already WARM or FOLLOWED

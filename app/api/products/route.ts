@@ -1,18 +1,17 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { ensureLegacyUserRow, requireAuthUser } from "@/lib/auth-server";
 
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const user_id = searchParams.get("user_id");
+  const auth = await requireAuthUser(request);
+  if ("response" in auth) return auth.response;
 
-  if (!user_id) {
-    return NextResponse.json({ error: "user_id is required." }, { status: 400 });
-  }
+  await ensureLegacyUserRow(auth.user);
 
   const { data, error } = await supabaseAdmin
     .from("products")
     .select("*")
-    .eq("user_id", user_id)
+    .eq("user_id", auth.user.id)
     .order("name");
 
   if (error) {
@@ -23,20 +22,22 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const body = await request.json();
-  const { user_id, name, description, url, daily_schedule_enabled } = body;
+  const auth = await requireAuthUser(request);
+  if ("response" in auth) return auth.response;
 
-  if (!user_id || !name) {
-    return NextResponse.json(
-      { error: "user_id and name are required." },
-      { status: 400 }
-    );
+  const body = await request.json();
+  const { name, description, url, daily_schedule_enabled } = body;
+
+  if (!name) {
+    return NextResponse.json({ error: "name is required." }, { status: 400 });
   }
+
+  await ensureLegacyUserRow(auth.user);
 
   const { data, error } = await supabaseAdmin
     .from("products")
     .insert({
-      user_id,
+      user_id: auth.user.id,
       name,
       description: description || null,
       url: url || null,

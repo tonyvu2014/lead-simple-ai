@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect, FormEvent, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { fetchWithAuth } from "@/lib/auth-client";
+import { supabase } from "@/lib/supabase";
 
 interface Business {
   name: string;
@@ -16,8 +18,10 @@ interface Contact {
 }
 
 function LeadsContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
-  const isProductLocked = !!searchParams.get("product_id");
+  const productIdParam = searchParams.get("product_id");
+  const isProductLocked = !!productIdParam;
   const EMPTY_CONTACTS: Contact[] = [
     { id: "__local_COLD", type: "COLD", subject: "", content: "" },
     { id: "__local_FOLLOW-UP", type: "FOLLOW-UP", subject: "", content: "" },
@@ -39,19 +43,39 @@ function LeadsContent() {
   const [generated, setGenerated] = useState(false);
 
   useEffect(() => {
-    const productId = searchParams.get("product_id");
+    const productId = productIdParam;
     if (!productId) return;
 
-    Promise.all([
-      fetch(`/api/products/${encodeURIComponent(productId)}`).then((r) => r.json()),
-      fetch(`/api/contacts?product_id=${encodeURIComponent(productId)}`).then((r) => r.json()),
-    ])
-      .then(([productData, contactsData]) => {
+    (async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session) {
+        router.replace(`/login?next=${encodeURIComponent(`/leads?product_id=${productId}`)}`);
+        return;
+      }
+
+      try {
+        const [productRes, contactsRes] = await Promise.all([
+          fetchWithAuth(`/api/products/${encodeURIComponent(productId)}`),
+          fetchWithAuth(`/api/contacts?product_id=${encodeURIComponent(productId)}`),
+        ]);
+
+        const [productData, contactsData] = await Promise.all([
+          productRes.json(),
+          contactsRes.json(),
+        ]);
+
+        if (!productRes.ok) throw new Error(productData.error || "Unauthorized product.");
+        if (!contactsRes.ok) throw new Error(contactsData.error || "Failed to load contacts.");
+
         if (productData.product) {
           setProductName(productData.product.name || "");
           setProductDescription(productData.product.description || "");
           setProductLink(productData.product.url || "");
         }
+
         if (contactsData.contacts) {
           setContacts((prev) =>
             prev.map((placeholder) => {
@@ -60,9 +84,11 @@ function LeadsContent() {
             })
           );
         }
-      })
-      .catch(() => {});
-  }, [searchParams]);
+      } catch {
+        showError("You are not allowed to access this product.");
+      }
+    })();
+  }, [productIdParam, router]);
 
   // Handler for Skip button
   function handleSkip() {
@@ -185,11 +211,11 @@ function LeadsContent() {
   }
 
   async function handleSaveLeads() {
-    const productId = searchParams.get("product_id");
+    const productId = productIdParam;
     if (!productId) return;
     setSavingLeads(true);
     try {
-      const res = await fetch("/api/leads", {
+      const res = await fetchWithAuth("/api/leads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ product_id: productId, leads: businesses }),
@@ -249,10 +275,11 @@ function LeadsContent() {
     setSendStatus({ type: "info", message: "Sending emails, please wait..." });
 
     try {
-      const res = await fetch("/api/send-emails", {
+      const requestFn = productIdParam ? fetchWithAuth : fetch;
+      const res = await requestFn("/api/send-emails", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ businesses: emailsToSend, subject: coldContact.subject, emailBody: coldContact.content, product_id: searchParams.get("product_id") ?? undefined, product_name: productName || undefined }),
+        body: JSON.stringify({ businesses: emailsToSend, subject: coldContact.subject, emailBody: coldContact.content, product_id: productIdParam ?? undefined, product_name: productName || undefined }),
       });
 
       const data = await res.json();
@@ -304,7 +331,7 @@ function LeadsContent() {
 
     setSavingContact(true);
     try {
-      const res = await fetch(`/api/contacts/${encodeURIComponent(id)}`, {
+      const res = await fetchWithAuth(`/api/contacts/${encodeURIComponent(id)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type, subject: editDraft.subject, content: editDraft.content }),
@@ -325,6 +352,16 @@ function LeadsContent() {
   return (
     <div className="container">
       <h1>Find and Email Relevant Leads For Your Product</h1>
+      {isProductLocked && productIdParam && (
+        <div style={{ margin: "0 0 1.25rem 0", textAlign: "center" }}>
+          <a
+            href={`/dashboard?product_id=${encodeURIComponent(productIdParam)}`}
+            style={{ fontSize: "0.95rem", color: "#2563eb", textDecoration: "underline" }}
+          >
+            ← Back to Dashboard
+          </a>
+        </div>
+      )}
       {!isProductLocked && (
         <div style={{ margin: "0 0 2rem 0", fontSize: "0.95rem", color: "#555", textAlign: "center" }}>
           This is just a quick demo of leaddaily.app. The full version will include smarter, more powerful features to help you grow leads with ease—like sending or scheduling cold and follow‑up emails, managing multiple products, and using your own email. Register your interest at{' '}
@@ -599,6 +636,12 @@ function LeadsContent() {
               </div>
             )}
           </div>
+
+          {sendStatus && (
+            <div className={`status-msg ${sendStatus.type}`} style={{ marginTop: 0, marginBottom: "1rem" }}>
+              {sendStatus.message}
+            </div>
+          )}
 
           {!manualMode && businesses.length > 0 && (
             <>

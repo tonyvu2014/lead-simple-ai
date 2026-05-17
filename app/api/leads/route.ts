@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { requireOwnedProduct } from "@/lib/auth-server";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -11,6 +12,9 @@ export async function GET(request: Request) {
       { status: 400 }
     );
   }
+
+  const ownership = await requireOwnedProduct(request, product_id);
+  if ("response" in ownership) return ownership.response;
 
   const { data, error } = await supabaseAdmin
     .from("leads")
@@ -39,6 +43,9 @@ export async function POST(request: Request) {
   if (!Array.isArray(leads) || leads.length === 0) {
     return NextResponse.json({ error: "leads array is required." }, { status: 400 });
   }
+
+  const ownership = await requireOwnedProduct(request, product_id);
+  if ("response" in ownership) return ownership.response;
 
   // Fetch existing emails for this product to avoid duplicates
   const { data: existing, error: fetchError } = await supabaseAdmin

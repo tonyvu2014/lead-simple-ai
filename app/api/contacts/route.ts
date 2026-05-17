@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { requireOwnedProduct } from "@/lib/auth-server";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -11,6 +12,9 @@ export async function GET(request: Request) {
       { status: 400 }
     );
   }
+
+  const ownership = await requireOwnedProduct(request, product_id);
+  if ("response" in ownership) return ownership.response;
 
   const { data, error } = await supabaseAdmin
     .from("contacts")
@@ -35,6 +39,9 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
+
+  const ownership = await requireOwnedProduct(request, product_id);
+  if ("response" in ownership) return ownership.response;
 
   // Check for an existing contact of the same type for this product
   const { data: existing } = await supabaseAdmin

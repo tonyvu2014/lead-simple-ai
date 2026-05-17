@@ -1,7 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback, FormEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Product, Contact, Lead, ContactType, LeadStatus } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
+import { fetchWithAuth } from "@/lib/auth-client";
 
 type ProductForm = { name: string; description: string; url: string };
 type ContactForm = { type: ContactType; subject: string; content: string };
@@ -17,9 +20,13 @@ const STATUS_LABELS: Record<LeadStatus, string> = {
 };
 
 export default function Dashboard() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
   // ── User ─────────────────────────────────────────────────────
   const [userId, setUserId] = useState("");
-  const [userIdInput, setUserIdInput] = useState("");
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
 
   // ── Products ─────────────────────────────────────────────────
   const [products, setProducts] = useState<Product[]>([]);
@@ -56,14 +63,44 @@ export default function Dashboard() {
   // ── Errors ────────────────────────────────────────────────────
   const [error, setError] = useState<string | null>(null);
 
-  // Load userId from localStorage on mount
+  // Require authenticated session
   useEffect(() => {
-    const stored = localStorage.getItem("dashboard_user_id");
-    if (stored) {
-      setUserId(stored);
-      setUserIdInput(stored);
-    }
-  }, []);
+    let mounted = true;
+
+    (async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!mounted) return;
+
+      if (!session) {
+        router.replace("/login?next=/dashboard");
+        return;
+      }
+
+      setUserId(session.user.id);
+      setUserEmail(session.user.email ?? null);
+      setAuthLoading(false);
+    })();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) {
+        router.replace("/login");
+        return;
+      }
+      setUserId(session.user.id);
+      setUserEmail(session.user.email ?? null);
+      setAuthLoading(false);
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, [router]);
 
   // ── Fetch products ───────────────────────────────────────────
   const fetchProducts = useCallback(async () => {
@@ -71,7 +108,7 @@ export default function Dashboard() {
     setProductsLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/products?user_id=${encodeURIComponent(userId)}`);
+      const res = await fetchWithAuth("/api/products");
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to fetch products.");
       setProducts(data.products ?? []);
@@ -90,7 +127,7 @@ export default function Dashboard() {
     setContactsLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/contacts?product_id=${encodeURIComponent(selectedProduct.id)}`);
+      const res = await fetchWithAuth(`/api/contacts?product_id=${encodeURIComponent(selectedProduct.id)}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to fetch contacts.");
       setContacts(data.contacts ?? []);
@@ -107,7 +144,7 @@ export default function Dashboard() {
     setLeadsLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/leads?product_id=${encodeURIComponent(selectedProduct.id)}`);
+      const res = await fetchWithAuth(`/api/leads?product_id=${encodeURIComponent(selectedProduct.id)}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to fetch leads.");
       setLeads(data.leads ?? []);
@@ -129,19 +166,19 @@ export default function Dashboard() {
     }
   }, [selectedProduct, panelMode, fetchContacts, fetchLeads]);
 
-  // ── User ID form ─────────────────────────────────────────────
-  function handleSetUserId(e: FormEvent) {
-    e.preventDefault();
-    const trimmed = userIdInput.trim();
-    if (!trimmed) return;
-    setUserId(trimmed);
-    localStorage.setItem("dashboard_user_id", trimmed);
-    setSelectedProduct(null);
-    setContacts([]);
-    setLeads([]);
-    setLeadPage(1);
-    setShowProductForm(false);
-    setShowContactForm(false);
+  useEffect(() => {
+    const requestedProductId = searchParams.get("product_id");
+    if (!requestedProductId || !products.length || selectedProduct) return;
+    const matched = products.find((product) => product.id === requestedProductId);
+    if (matched) {
+      setSelectedProduct(matched);
+      setPanelMode("contacts");
+    }
+  }, [products, searchParams, selectedProduct]);
+
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    router.push("/login");
   }
 
   // ── Open panel ───────────────────────────────────────────────
@@ -190,15 +227,15 @@ export default function Dashboard() {
     setError(null);
     try {
       const res = editingProduct
-        ? await fetch(`/api/products/${editingProduct.id}`, {
+        ? await fetchWithAuth(`/api/products/${editingProduct.id}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(productForm),
           })
-        : await fetch("/api/products", {
+        : await fetchWithAuth("/api/products", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ user_id: userId, ...productForm }),
+            body: JSON.stringify({ ...productForm }),
           });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to save product.");
@@ -218,7 +255,7 @@ export default function Dashboard() {
     if (!confirm(`Delete "${product.name}"? All its leads and contacts will also be deleted.`)) return;
     setError(null);
     try {
-      const res = await fetch(`/api/products/${product.id}`, { method: "DELETE" });
+      const res = await fetchWithAuth(`/api/products/${product.id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to delete product.");
       if (selectedProduct?.id === product.id) setSelectedProduct(null);
@@ -330,12 +367,12 @@ export default function Dashboard() {
     setError(null);
     try {
       const res = editingContact
-        ? await fetch(`/api/contacts/${editingContact.id}`, {
+        ? await fetchWithAuth(`/api/contacts/${editingContact.id}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(contactForm),
           })
-        : await fetch("/api/contacts", {
+        : await fetchWithAuth("/api/contacts", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ product_id: selectedProduct!.id, ...contactForm }),
@@ -355,7 +392,7 @@ export default function Dashboard() {
     if (!confirm(`Delete contact email "${contact.subject}"?`)) return;
     setError(null);
     try {
-      const res = await fetch(`/api/contacts/${contact.id}`, { method: "DELETE" });
+      const res = await fetchWithAuth(`/api/contacts/${contact.id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to delete contact.");
       await fetchContacts();
@@ -370,7 +407,7 @@ export default function Dashboard() {
     setSendingLeadId(lead.id);
     try {
       // Fetch contacts to get COLD template
-      const contactsRes = await fetch(`/api/contacts?product_id=${encodeURIComponent(selectedProduct.id)}`);
+      const contactsRes = await fetchWithAuth(`/api/contacts?product_id=${encodeURIComponent(selectedProduct.id)}`);
       const contactsData = await contactsRes.json();
       if (!contactsRes.ok) throw new Error(contactsData.error || "Failed to fetch email templates.");
       const coldTemplate = (contactsData.contacts ?? []).find(
@@ -381,7 +418,7 @@ export default function Dashboard() {
         return;
       }
       const emailBody = coldTemplate.content.replace(/\{\{name\}\}/g, lead.name);
-      const sendRes = await fetch("/api/send-emails", {
+      const sendRes = await fetchWithAuth("/api/send-emails", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -413,7 +450,7 @@ export default function Dashboard() {
     setDailyScheduleSaving(true);
     setError(null);
     try {
-      const res = await fetch(`/api/products/${selectedProduct.id}`, {
+      const res = await fetchWithAuth(`/api/products/${selectedProduct.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -435,36 +472,28 @@ export default function Dashboard() {
   }
 
   // ── Render ────────────────────────────────────────────────────
+  if (authLoading) {
+    return (
+      <div className="container">
+        <p className="loading-text">Loading session…</p>
+      </div>
+    );
+  }
+
   return (
     <div className="container">
       <h1>Dashboard</h1>
 
-      {/* User ID bar */}
+      {/* User bar */}
       <div className="card" style={{ marginBottom: "1.5rem" }}>
-        <form onSubmit={handleSetUserId} style={{ display: "flex", gap: "0.75rem", alignItems: "flex-end" }}>
-          <div style={{ flex: 1 }}>
-            <label htmlFor="userId">User ID</label>
-            <input
-              type="text"
-              id="userId"
-              placeholder="Paste your Supabase user UUID"
-              value={userIdInput}
-              onChange={(e) => setUserIdInput(e.target.value)}
-              style={{ marginBottom: 0 }}
-            />
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem" }}>
+          <div style={{ fontSize: "0.92rem", color: "#666" }}>
+            Logged in as <strong>{userEmail ?? userId}</strong>
           </div>
-          <button type="submit" className="btn-generate" style={{ whiteSpace: "nowrap" }}>
-            Load
+          <button type="button" className="btn-cancel" onClick={handleLogout}>
+            Logout
           </button>
-        </form>
-        {userId && (
-          <p style={{ marginTop: "0.5rem", fontSize: "0.85rem", color: "#888" }}>
-            Viewing as:{" "}
-            <code style={{ background: "#f5f5f5", padding: "0 4px", borderRadius: 4 }}>
-              {userId}
-            </code>
-          </p>
-        )}
+        </div>
       </div>
 
       {error && (

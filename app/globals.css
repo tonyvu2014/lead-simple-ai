@@ -41,6 +41,8 @@ label {
 }
 
 input[type="text"],
+input[type="email"],
+input[type="password"],
 input[type="url"],
 textarea {
   width: 100%;
@@ -53,6 +55,8 @@ textarea {
 }
 
 input[type="text"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus,
 input[type="url"]:focus,
 textarea:focus {
   outline: none;
@@ -314,9 +318,9 @@ tr:hover {
 .item-card__sub {
   font-size: 0.85rem;
   color: #666;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .item-card__content {
