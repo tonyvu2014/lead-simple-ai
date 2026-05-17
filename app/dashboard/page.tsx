@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useState, useEffect, useCallback, FormEvent } from "react";
+import { useState, useEffect, useCallback, FormEvent, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Product, Contact, Lead, ContactType, LeadStatus } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
@@ -124,7 +124,7 @@ function ActionIcon({ kind }: { kind: "contacts" | "leads" | "find" | "edit" | "
   }
 }
 
-export default function Dashboard() {
+function DashboardContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -1086,5 +1086,13 @@ export default function Dashboard() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function Page() {
+  return (
+    <Suspense>
+      <DashboardContent />
+    </Suspense>
   );
 }
