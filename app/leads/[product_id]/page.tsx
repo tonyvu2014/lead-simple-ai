@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState, useEffect, FormEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { fetchWithAuth } from "@/lib/auth-client";
@@ -348,7 +349,17 @@ export default function Home() {
 
   return (
     <div className="container">
-      <h1>Find and Email Relevant Leads For Your Product</h1>
+      <h1 className="page-title">
+        <Image
+          src="/logo.svg"
+          alt="LeadDaily logo"
+          width={44}
+          height={44}
+          className="page-title__logo"
+          priority
+        />
+        <span>Find and Email Relevant Leads For Your Product</span>
+      </h1>
       {isProductLocked && productIdParam && (
         <div style={{ margin: "0 0 1.25rem 0", textAlign: "center" }}>
           <a

@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState, useEffect, useCallback, FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Product, Contact, Lead, ContactType, LeadStatus } from "@/lib/supabase";
@@ -18,6 +19,110 @@ const STATUS_LABELS: Record<LeadStatus, string> = {
   WARM: "Warm",
   FOLLOWED: "Followed",
 };
+
+const CONTACT_TYPE_NOTES: Record<ContactType, string> = {
+  COLD: "Sent to a lead for the very first time",
+  "FOLLOW-UP": "Sent to leads 5 days after the first-touch email to remind, re-engage or move the conversation forward",
+};
+
+function ActionIcon({ kind }: { kind: "contacts" | "leads" | "find" | "edit" | "delete" | "send" }) {
+  switch (kind) {
+    case "contacts":
+      return (
+        <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" className="btn-action__icon">
+          <path
+            d="M3.75 5.75A1.75 1.75 0 0 1 5.5 4h9a1.75 1.75 0 0 1 1.75 1.75v8.5A1.75 1.75 0 0 1 14.5 16h-9a1.75 1.75 0 0 1-1.75-1.75v-8.5Z"
+            stroke="currentColor"
+            strokeWidth="1.5"
+          />
+          <path
+            d="m4.5 6 4.72 3.54a1.33 1.33 0 0 0 1.56 0L15.5 6"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      );
+    case "leads":
+      return (
+        <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" className="btn-action__icon">
+          <path
+            d="M10 10.25a2.75 2.75 0 1 0 0-5.5 2.75 2.75 0 0 0 0 5.5Z"
+            stroke="currentColor"
+            strokeWidth="1.5"
+          />
+          <path
+            d="M5.25 15.25a4.75 4.75 0 0 1 9.5 0"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+          <path
+            d="M4 8.25a2 2 0 1 0 0-4M16 8.25a2 2 0 1 1 0-4"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+        </svg>
+      );
+    case "find":
+      return (
+        <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" className="btn-action__icon">
+          <circle cx="9" cy="9" r="4.25" stroke="currentColor" strokeWidth="1.5" />
+          <path
+            d="m12 12 3.25 3.25"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+        </svg>
+      );
+    case "edit":
+      return (
+        <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" className="btn-action__icon">
+          <path
+            d="M4.75 13.75 4 16l2.25-.75L14.5 7a1.59 1.59 0 0 0-2.25-2.25l-7.5 7.5Z"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <path d="m11.5 5.5 3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      );
+    case "delete":
+      return (
+        <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" className="btn-action__icon">
+          <path
+            d="M5.75 6.5h8.5M8 6.5V5.25c0-.69.56-1.25 1.25-1.25h1.5C11.44 4 12 4.56 12 5.25V6.5m1.5 0-.55 8.05A1.5 1.5 0 0 1 11.45 16H8.55a1.5 1.5 0 0 1-1.5-1.45L6.5 6.5"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <path d="M8.75 9v4.25M11.25 9v4.25" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      );
+    case "send":
+      return (
+        <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" className="btn-action__icon">
+          <path
+            d="M3.75 9.25 15.5 4.5a.5.5 0 0 1 .66.63l-3.9 10.72a.5.5 0 0 1-.92.05l-1.9-4.13-4.14-1.9a.5.5 0 0 1 .05-.92Z"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinejoin="round"
+          />
+          <path
+            d="m9.25 11 6.5-6.5"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+        </svg>
+      );
+  }
+}
 
 export default function Dashboard() {
   const router = useRouter();
@@ -55,6 +160,11 @@ export default function Dashboard() {
   const [leadsLoading, setLeadsLoading] = useState(false);
   const [sendingLeadId, setSendingLeadId] = useState<string | null>(null);
   const [modalMessage, setModalMessage] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<
+    | { type: "product"; product: Product }
+    | { type: "contact"; contact: Contact }
+    | null
+  >(null);
   const [leadStatusFilter, setLeadStatusFilter] = useState<LeadStatus | "ALL">("ALL");
   const [leadPage, setLeadPage] = useState(1);
   const [dailyScheduleSaving, setDailyScheduleSaving] = useState(false);
@@ -252,16 +362,32 @@ export default function Dashboard() {
   }
 
   async function handleDeleteProduct(product: Product) {
-    if (!confirm(`Delete "${product.name}"? All its leads and contacts will also be deleted.`)) return;
+    setDeleteTarget({ type: "product", product });
+  }
+
+  async function confirmDeleteTarget() {
+    if (!deleteTarget) return;
+
     setError(null);
     try {
-      const res = await fetchWithAuth(`/api/products/${product.id}`, { method: "DELETE" });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to delete product.");
-      if (selectedProduct?.id === product.id) setSelectedProduct(null);
-      await fetchProducts();
+      if (deleteTarget.type === "product") {
+        const { product } = deleteTarget;
+        const res = await fetchWithAuth(`/api/products/${product.id}`, { method: "DELETE" });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to delete product.");
+        if (selectedProduct?.id === product.id) setSelectedProduct(null);
+        await fetchProducts();
+      } else {
+        const { contact } = deleteTarget;
+        const res = await fetchWithAuth(`/api/contacts/${contact.id}`, { method: "DELETE" });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to delete contact.");
+        await fetchContacts();
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setDeleteTarget(null);
     }
   }
 
@@ -389,16 +515,7 @@ export default function Dashboard() {
   }
 
   async function handleDeleteContact(contact: Contact) {
-    if (!confirm(`Delete contact email "${contact.subject}"?`)) return;
-    setError(null);
-    try {
-      const res = await fetchWithAuth(`/api/contacts/${contact.id}`, { method: "DELETE" });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to delete contact.");
-      await fetchContacts();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-    }
+    setDeleteTarget({ type: "contact", contact });
   }
 
   // ── Send cold email ─────────────────────────────────────────
@@ -482,7 +599,17 @@ export default function Dashboard() {
 
   return (
     <div className="container">
-      <h1>Dashboard</h1>
+      <h1 className="page-title">
+        <Image
+          src="/logo.svg"
+          alt="LeadDaily logo"
+          width={44}
+          height={44}
+          className="page-title__logo"
+          priority
+        />
+        <span>Dashboard</span>
+      </h1>
 
       {/* User bar */}
       <div className="card" style={{ marginBottom: "1.5rem" }}>
@@ -578,30 +705,37 @@ export default function Dashboard() {
                       {/* Panel-open buttons column */}
                       <div className="item-card__panel-btns">
                         <button
+                          type="button"
                           className={`btn-action btn-action--contacts${isSelected && panelMode === "contacts" ? " btn-action--active" : ""}`}
                           onClick={() => openPanel(p, "contacts")}
                         >
+                          <ActionIcon kind="contacts" />
                           Email Templates
                         </button>
                         <button
+                          type="button"
                           className={`btn-action btn-action--leads${isSelected && panelMode === "leads" ? " btn-action--active" : ""}`}
                           onClick={() => openPanel(p, "leads")}
                         >
+                          <ActionIcon kind="leads" />
                           Lead Management
                         </button>
                         <a
                           href={`/leads/${encodeURIComponent(p.id)}`}
                           className="btn-action btn-action--find-leads"
                         >
+                          <ActionIcon kind="find" />
                           Find Leads
                         </a>
                       </div>
                       {/* Edit / Delete column */}
                       <div className="item-card__actions">
-                        <button className="btn-action btn-action--edit" onClick={() => openEditProduct(p)}>
+                        <button type="button" className="btn-action btn-action--edit" onClick={() => openEditProduct(p)}>
+                          <ActionIcon kind="edit" />
                           Edit
                         </button>
-                        <button className="btn-action btn-action--delete" onClick={() => handleDeleteProduct(p)}>
+                        <button type="button" className="btn-action btn-action--delete" onClick={() => handleDeleteProduct(p)}>
+                          <ActionIcon kind="delete" />
                           Delete
                         </button>
                       </div>
@@ -645,6 +779,9 @@ export default function Dashboard() {
                         {contactGenerating ? "Generating..." : "Generate with AI"}
                       </button>
                     </div>
+                    <p style={{ margin: "0 0 1rem 0", fontSize: "0.92rem", color: "#555", lineHeight: 1.5 }}>
+                      You can use {"{{name}}"} as a placeholder in the subject or body — it will be replaced with the business or contact name when the email is sent.
+                    </p>
                     <label>Subject *</label>
                     <input
                       type="text"
@@ -684,15 +821,18 @@ export default function Dashboard() {
                       return (
                         <li key={slotType} className="item-card">
                           <div className="item-card__body">
-                            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.35rem" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: contact ? "0.35rem" : 0, flexWrap: "wrap" }}>
                               <span className={`badge badge--${slotType === "COLD" ? "cold" : "followup"}`}>
                                 {slotType}
                               </span>
-                              <span className="item-card__title">
-                                {contact
-                                  ? contact.subject
-                                  : <em style={{ color: "#aaa", fontWeight: 400 }}>Not set</em>}
+                              <span style={{ color: "#888", fontSize: "0.8rem", lineHeight: 1.4 }}>
+                                {CONTACT_TYPE_NOTES[slotType]}
                               </span>
+                            </div>
+                            <div className="item-card__title" style={{ marginBottom: contact ? "0.35rem" : 0 }}>
+                              {contact
+                                ? contact.subject
+                                : <em style={{ color: "#aaa", fontWeight: 400 }}>Not set</em>}
                             </div>
                             {contact && (
                               <div>
@@ -706,17 +846,20 @@ export default function Dashboard() {
                             )}
                           </div>
                           <div className="item-card__actions">
-                            <button className="btn-action btn-action--edit" onClick={() => openContactSlot(slotType)}>
+                            <button type="button" className="btn-action btn-action--edit" onClick={() => openContactSlot(slotType)}>
+                              <ActionIcon kind="edit" />
                               {contact ? "Edit" : "Set Email"}
                             </button>
                             <button
+                              type="button"
                               className="btn-action btn-action--generate"
                               onClick={() => openContactSlotAndGenerate(slotType)}
                             >
                               ✦ Generate with AI
                             </button>
                             {contact && (
-                              <button className="btn-action btn-action--delete" onClick={() => handleDeleteContact(contact)}>
+                              <button type="button" className="btn-action btn-action--delete" onClick={() => handleDeleteContact(contact)}>
+                                <ActionIcon kind="delete" />
                                 Delete
                               </button>
                             )}
@@ -865,10 +1008,12 @@ export default function Dashboard() {
                               <td>
                                 {lead.status === "COLD" && (
                                   <button
+                                    type="button"
                                     className="btn-action btn-action--send-email"
                                     disabled={sendingLeadId === lead.id}
                                     onClick={() => handleSendColdEmail(lead)}
                                   >
+                                    <ActionIcon kind="send" />
                                     {sendingLeadId === lead.id ? "Sending…" : "Send Email"}
                                   </button>
                                 )}
@@ -913,6 +1058,30 @@ export default function Dashboard() {
           <div className="modal-box" onClick={(e) => e.stopPropagation()}>
             <p className="modal-box__message">{modalMessage}</p>
             <button className="btn-search" onClick={() => setModalMessage(null)}>OK</button>
+          </div>
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div className="modal-overlay" onClick={() => setDeleteTarget(null)}>
+          <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+            <p className="modal-box__message">
+              {deleteTarget.type === "product"
+                ? `Delete "${deleteTarget.product.name}"? All its leads and contacts will also be deleted.`
+                : `Delete contact email "${deleteTarget.contact.subject}"?`}
+            </p>
+            <div style={{ display: "flex", gap: "0.75rem" }}>
+              <button
+                className="btn-action btn-action--delete"
+                onClick={confirmDeleteTarget}
+                style={{ padding: "0.5rem 1rem" }}
+              >
+                Delete
+              </button>
+              <button className="btn-search" onClick={() => setDeleteTarget(null)}>
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}

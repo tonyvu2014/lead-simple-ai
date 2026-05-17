@@ -8,6 +8,9 @@ export const metadata: Metadata = {
   title: "LeadDaily",
   description:
     "Find leads and send cold outreach emails using AI-powered business search",
+  icons: {
+    icon: "/icon.svg",
+  },
 };
 
 export default function RootLayout({
