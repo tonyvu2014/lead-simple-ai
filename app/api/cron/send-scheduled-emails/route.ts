@@ -16,6 +16,19 @@ function quoteDisplayName(value: string) {
   return value.replace(/"/g, "").trim();
 }
 
+function textToHtml(text: string): string {
+  const escaped = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+  const linked = escaped.replace(
+    /(https?:\/\/[^\s<>"]+)/g,
+    '<a href="$1">$1</a>'
+  );
+  return linked.replace(/\n/g, "<br>\n");
+}
+
 function resolveSender(
   rawFrom: string | undefined,
   fallbackEmail: string | undefined,
@@ -137,6 +150,7 @@ export async function GET(request: Request) {
         to: row.lead_email,
         subject: personalizedSubject,
         text: personalizedBody,
+        html: textToHtml(personalizedBody),
       });
 
       await supabaseAdmin

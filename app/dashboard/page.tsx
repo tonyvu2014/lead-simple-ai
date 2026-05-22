@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Product, Contact, Lead, ContactType, LeadStatus, EmailConfig } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
 import { fetchWithAuth } from "@/lib/auth-client";
+import { textToHtml } from "@/lib/text-to-html";
 
 type ProductForm = { name: string; description: string; url: string };
 type ContactForm = { type: ContactType; subject: string; content: string };
@@ -976,9 +977,10 @@ function DashboardContent() {
                             </div>
                             {contact && (
                               <div>
-                                <div className={`item-card__sub item-card__content${isExpanded ? " item-card__content--expanded" : ""}`}>
-                                  {contact.content}
-                                </div>
+                                <div
+                                  className={`item-card__sub item-card__content${isExpanded ? " item-card__content--expanded" : ""}`}
+                                  dangerouslySetInnerHTML={{ __html: textToHtml(contact.content) }}
+                                />
                                 <button className="btn-view-more" type="button" onClick={() => toggleExpanded(slotType)}>
                                   {isExpanded ? "View less" : "View more"}
                                 </button>

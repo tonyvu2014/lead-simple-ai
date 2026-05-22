@@ -336,7 +336,7 @@ tr:hover {
 }
 
 .item-card__content {
-  white-space: pre-wrap;
+  white-space: normal;
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 3;

@@ -56,6 +56,19 @@ function resolveSender(
   return { fromHeader: envelopeFrom, envelopeFrom };
 }
 
+function textToHtml(text: string): string {
+  const escaped = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+  const linked = escaped.replace(
+    /(https?:\/\/[^\s<>"]+)/g,
+    '<a href="$1">$1</a>'
+  );
+  return linked.replace(/\n/g, "<br>\n");
+}
+
 interface Business {
   name: string;
   email: string;
@@ -140,11 +153,12 @@ export async function POST(request: Request) {
     }
   }
 
+  const useSSL = smtpPort === 465;
   const transporter = nodemailer.createTransport({
     host: smtpHost,
     port: smtpPort,
-    secure: false,
-    requireTLS: true,
+    secure: useSSL,
+    ...(!useSSL && { requireTLS: true }),
     auth: {
       user: smtpUser,
       pass: smtpPass,
@@ -173,6 +187,7 @@ export async function POST(request: Request) {
         to: biz.email,
         subject: subject || "Hello from LeadDaily.App",
         text: personalizedBody,
+        html: textToHtml(personalizedBody),
       });
       results.push({ email: biz.email, status: "sent" });
     } catch (error: any) {

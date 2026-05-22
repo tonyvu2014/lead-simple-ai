@@ -5,6 +5,7 @@ import { useState, useEffect, FormEvent, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { fetchWithAuth } from "@/lib/auth-client";
 import { supabase } from "@/lib/supabase";
+import { textToHtml } from "@/lib/text-to-html";
 
 interface Business {
   name: string;
@@ -544,12 +545,10 @@ function LeadsContent() {
                         borderRadius: "6px",
                         padding: "0.75rem",
                         fontSize: "0.875rem",
-                        whiteSpace: "pre-wrap",
                         color: "#333",
                       }}
-                    >
-                      {contact.content}
-                    </div>
+                      dangerouslySetInnerHTML={{ __html: textToHtml(contact.content) }}
+                    />
                   </>
                 )}
               </div>
