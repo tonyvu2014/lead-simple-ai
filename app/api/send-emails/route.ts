@@ -178,20 +178,34 @@ export async function POST(request: Request) {
     !hasCustomEmailConfig
   );
 
-  for (const biz of eligibleBusinesses) {
-    try {
-      const personalizedBody = emailBody.replace(/\{\{name\}\}/gi, biz.name || "");
-      await transporter.sendMail({
-        from: sender.fromHeader,
-        envelope: { from: sender.envelopeFrom, to: biz.email },
-        to: biz.email,
-        subject: subject || "Hello from LeadDaily.App",
-        text: personalizedBody,
-        html: textToHtml(personalizedBody),
-      });
+  const BATCH_SIZE = 3;
+  const sendResults: PromiseSettledResult<string>[] = [];
+
+  for (let i = 0; i < eligibleBusinesses.length; i += BATCH_SIZE) {
+    const batch = eligibleBusinesses.slice(i, i + BATCH_SIZE);
+    const batchResults = await Promise.allSettled(
+      batch.map(async (biz) => {
+        const personalizedBody = emailBody.replace(/\{\{name\}\}/gi, biz.name || "");
+        await transporter.sendMail({
+          from: sender.fromHeader,
+          envelope: { from: sender.envelopeFrom, to: biz.email },
+          to: biz.email,
+          subject: subject || "Hello from LeadDaily.App",
+          text: personalizedBody,
+          html: textToHtml(personalizedBody),
+        });
+        return biz.email;
+      })
+    );
+    sendResults.push(...batchResults);
+  }
+
+  for (let i = 0; i < eligibleBusinesses.length; i++) {
+    const biz = eligibleBusinesses[i];
+    if (sendResults[i].status === "fulfilled") {
       results.push({ email: biz.email, status: "sent" });
-    } catch (error: any) {
-      console.error(`Failed to send to ${biz.email}:`, error.message);
+    } else {
+      console.error(`Failed to send to ${biz.email}:`, (sendResults[i] as PromiseRejectedResult).reason?.message);
       results.push({ email: biz.email, status: "failed" });
     }
   }

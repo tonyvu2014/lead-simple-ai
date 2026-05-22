@@ -1223,14 +1223,17 @@ function DashboardContent() {
                     </div>
                   </div>
                   <div className="leads-legend__item">
+                    <span className="leads-legend__count leads-legend__count--cold">{leads.filter(l => l.status === "COLD").length}</span>
                     <span className="badge badge--cold">COLD</span>
                     <span>Not yet initiated the conversation</span>
                   </div>
                   <div className="leads-legend__item">
+                    <span className="leads-legend__count leads-legend__count--warm">{leads.filter(l => l.status === "WARM").length}</span>
                     <span className="badge badge--warm">WARM</span>
                     <span>First email is sent</span>
                   </div>
                   <div className="leads-legend__item">
+                    <span className="leads-legend__count leads-legend__count--followed">{leads.filter(l => l.status === "FOLLOWED").length}</span>
                     <span className="badge badge--followed">FOLLOWED</span>
                     <span>First and follow-up emails are sent</span>
                   </div>
