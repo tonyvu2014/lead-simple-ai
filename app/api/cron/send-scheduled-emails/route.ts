@@ -69,15 +69,21 @@ function resolveSender(
 }
 
 export async function GET(request: Request) {
+  console.log("[send-scheduled-emails] Cron job triggered at", new Date().toISOString());
+
   // Verify the request comes from Vercel Cron (or an authorised caller)
   const authHeader = request.headers.get("authorization");
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    console.warn("[send-scheduled-emails] Unauthorized request — invalid or missing CRON_SECRET");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  console.log("[send-scheduled-emails] Auth check passed");
 
   const now = new Date().toISOString();
 
   // Fetch all pending scheduled emails whose send_at has passed
+  console.log("[send-scheduled-emails] Fetching pending scheduled emails due before", now);
   const { data: due, error: fetchError } = await supabaseAdmin
     .from("scheduled_emails")
     .select("*")
@@ -85,20 +91,26 @@ export async function GET(request: Request) {
     .lte("send_at", now);
 
   if (fetchError) {
-    console.error("Failed to fetch scheduled emails:", fetchError.message);
+    console.error("[send-scheduled-emails] Failed to fetch scheduled emails:", fetchError.message);
     return NextResponse.json({ error: fetchError.message }, { status: 500 });
   }
 
   if (!due || due.length === 0) {
+    console.log("[send-scheduled-emails] No scheduled emails due — exiting early");
     return NextResponse.json({ message: "No scheduled emails due." });
   }
 
+  console.log(`[send-scheduled-emails] Found ${due.length} email(s) to process`);
+
   // Fetch email configs for all unique product_ids in this batch
   const uniqueProductIds = [...new Set(due.map((r: { product_id: string }) => r.product_id))];
+  console.log("[send-scheduled-emails] Fetching email configs for product_ids:", uniqueProductIds);
   const { data: emailConfigs } = await supabaseAdmin
     .from("email_config")
     .select("product_id, host, port, username, password, email_from")
     .in("product_id", uniqueProductIds);
+
+  console.log(`[send-scheduled-emails] Loaded ${emailConfigs?.length ?? 0} email config(s)`);
 
   // Map product_id → config for fast lookup
   const configByProduct = new Map(
@@ -108,12 +120,16 @@ export async function GET(request: Request) {
   // Helper: get (or create) a nodemailer transporter for a given product
   const transporterCache = new Map<string, ReturnType<typeof nodemailer.createTransport>>();
   function getTransporter(productId: string) {
-    if (transporterCache.has(productId)) return transporterCache.get(productId)!;
+    if (transporterCache.has(productId)) {
+      console.log(`[send-scheduled-emails] Reusing cached transporter for product ${productId}`);
+      return transporterCache.get(productId)!;
+    }
     const cfg = configByProduct.get(productId);
     const host = cfg?.host ?? process.env.SMTP_HOST;
     const port = cfg?.port ?? Number(process.env.SMTP_PORT) ?? 587;
     const user = cfg?.username ?? process.env.SMTP_USER;
     const pass = cfg?.password ?? process.env.SMTP_PASS;
+    console.log(`[send-scheduled-emails] Creating transporter for product ${productId} — host: ${host}, port: ${port}, user: ${user}`);
     const t = nodemailer.createTransport({
       host,
       port,
@@ -130,6 +146,7 @@ export async function GET(request: Request) {
   let failedCount = 0;
 
   for (const row of due) {
+    console.log(`[send-scheduled-emails] Processing email id=${row.id} → ${row.lead_email} (product: ${row.product_id}, send_at: ${row.send_at})`);
     const personalizedSubject = row.subject.replace(/\{\{name\}\}/gi, row.lead_name || "");
     const personalizedBody = row.body.replace(/\{\{name\}\}/gi, row.lead_name || "");
     const cfg = configByProduct.get(row.product_id);
@@ -141,9 +158,11 @@ export async function GET(request: Request) {
       row.from_name,
       !cfg
     );
+    console.log(`[send-scheduled-emails] Resolved sender — from: "${sender.fromHeader}", envelope: ${sender.envelopeFrom}`);
     const transporter = getTransporter(row.product_id);
 
     try {
+      console.log(`[send-scheduled-emails] Sending email id=${row.id} to ${row.lead_email} with subject "${personalizedSubject}"`);
       await transporter.sendMail({
         from: sender.fromHeader,
         envelope: { from: sender.envelopeFrom, to: row.lead_email },
@@ -152,6 +171,7 @@ export async function GET(request: Request) {
         text: personalizedBody,
         html: textToHtml(personalizedBody),
       });
+      console.log(`[send-scheduled-emails] Email id=${row.id} sent successfully to ${row.lead_email}`);
 
       await supabaseAdmin
         .from("scheduled_emails")
@@ -165,9 +185,10 @@ export async function GET(request: Request) {
         .eq("product_id", row.product_id)
         .eq("email", row.lead_email);
 
+      console.log(`[send-scheduled-emails] Lead ${row.lead_email} status updated to FOLLOWED`);
       sentCount++;
     } catch (err: any) {
-      console.error(`Failed to send follow-up to ${row.lead_email}:`, err.message);
+      console.error(`[send-scheduled-emails] Failed to send email id=${row.id} to ${row.lead_email}:`, err.message);
 
       await supabaseAdmin
         .from("scheduled_emails")
@@ -178,6 +199,7 @@ export async function GET(request: Request) {
     }
   }
 
+  console.log(`[send-scheduled-emails] Done — sent: ${sentCount}, failed: ${failedCount}`);
   return NextResponse.json({
     message: `Follow-up emails processed. ${sentCount} sent, ${failedCount} failed.`,
     sentCount,

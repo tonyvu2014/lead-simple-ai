@@ -98,8 +98,12 @@ export async function POST(request: Request) {
   }
 
   if (product_id) {
-    const ownership = await requireOwnedProduct(request, product_id);
-    if ("response" in ownership) return ownership.response;
+    const internalSecret = request.headers.get("x-cron-secret");
+    const isCronRequest = internalSecret && internalSecret === process.env.CRON_SECRET;
+    if (!isCronRequest) {
+      const ownership = await requireOwnedProduct(request, product_id);
+      if ("response" in ownership) return ownership.response;
+    }
   }
 
   // If a product_id is provided, skip leads that are already WARM or FOLLOWED
