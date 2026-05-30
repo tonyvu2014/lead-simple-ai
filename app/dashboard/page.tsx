@@ -152,7 +152,7 @@ function DashboardContent() {
   const [products, setProducts] = useState<Product[]>([]);
   const [productsLoading, setProductsLoading] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [panelMode, setPanelMode] = useState<PanelMode>("contacts");
+  const [panelMode, setPanelMode] = useState<PanelMode>("leads");
 
   const [showProductForm, setShowProductForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -326,7 +326,7 @@ function DashboardContent() {
     const matched = products.find((product) => product.id === requestedProductId);
     if (matched) {
       setSelectedProduct(matched);
-      setPanelMode("contacts");
+      setPanelMode("leads");
     }
   }, [products, searchParams, selectedProduct]);
 
@@ -1178,7 +1178,7 @@ function DashboardContent() {
                     <div>
                       <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>Daily Schedule</div>
                       <div style={{ fontSize: "0.82rem", color: "#64748b" }}>
-                        Auto-send the cold + follow-up flow to up to 50 cold leads daily.
+                        Auto-send the cold + follow-up flow to up to 100 cold leads daily.
                       </div>
                     </div>
                     <div style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", fontWeight: 600, fontSize: "0.9rem" }}>

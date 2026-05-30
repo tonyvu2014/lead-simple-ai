@@ -78,7 +78,7 @@ export async function GET(request: Request) {
       .eq("product_id", product.id)
       .eq("status", "COLD")
       .order("id")
-      .limit(50);
+      .limit(100);
 
     if (leadsError) {
       console.error(`[run-daily-schedule] Failed to fetch COLD leads for "${product.name}":`, leadsError.message);
