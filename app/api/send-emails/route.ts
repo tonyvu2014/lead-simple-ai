@@ -4,6 +4,89 @@ import { supabaseAdmin } from "@/lib/supabase";
 import { requireOwnedProduct } from "@/lib/auth-server";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL_QUERY_BATCH_SIZE = 500;
+const INSERT_BATCH_SIZE = 500;
+
+type ExistingLeadStatusRow = {
+  email: string;
+  status: string;
+};
+
+type ExistingLeadRow = {
+  id: string;
+  email: string;
+};
+
+function chunkArray<T>(items: T[], chunkSize: number) {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += chunkSize) {
+    chunks.push(items.slice(i, i + chunkSize));
+  }
+  return chunks;
+}
+
+async function fetchExistingLeadStatuses(productId: string, emails: string[]) {
+  const rows: ExistingLeadStatusRow[] = [];
+
+  for (const batch of chunkArray(emails, EMAIL_QUERY_BATCH_SIZE)) {
+    const { data, error } = await supabaseAdmin
+      .from("leads")
+      .select("email, status")
+      .eq("product_id", productId)
+      .in("email", batch);
+
+    if (error) {
+      throw error;
+    }
+
+    rows.push(...((data ?? []) as ExistingLeadStatusRow[]));
+  }
+
+  return rows;
+}
+
+async function fetchExistingLeads(productId: string, emails: string[]) {
+  const rows: ExistingLeadRow[] = [];
+
+  for (const batch of chunkArray(emails, EMAIL_QUERY_BATCH_SIZE)) {
+    const { data, error } = await supabaseAdmin
+      .from("leads")
+      .select("id, email")
+      .eq("product_id", productId)
+      .in("email", batch);
+
+    if (error) {
+      throw error;
+    }
+
+    rows.push(...((data ?? []) as ExistingLeadRow[]));
+  }
+
+  return rows;
+}
+
+async function updateLeadStatuses(productId: string, emails: string[], status: "WARM") {
+  for (const batch of chunkArray(emails, EMAIL_QUERY_BATCH_SIZE)) {
+    const { error } = await supabaseAdmin
+      .from("leads")
+      .update({ status })
+      .eq("product_id", productId)
+      .in("email", batch);
+
+    if (error) {
+      throw error;
+    }
+  }
+}
+
+async function insertRowsInBatches<T extends Record<string, unknown>>(table: string, rows: T[]) {
+  for (const batch of chunkArray(rows, INSERT_BATCH_SIZE)) {
+    const { error } = await supabaseAdmin.from(table).insert(batch);
+    if (error) {
+      throw error;
+    }
+  }
+}
 
 function extractEmailAddress(value?: string | null) {
   if (!value) return null;
@@ -110,11 +193,7 @@ export async function POST(request: Request) {
   let eligibleBusinesses = businesses;
   if (product_id) {
     const allEmails = businesses.map((b) => b.email.toLowerCase());
-    const { data: existingLeads } = await supabaseAdmin
-      .from("leads")
-      .select("email, status")
-      .eq("product_id", product_id)
-      .in("email", allEmails);
+    const existingLeads = await fetchExistingLeadStatuses(product_id, allEmails);
 
     const ineligibleEmails = new Set(
       (existingLeads ?? [])
@@ -228,11 +307,7 @@ export async function POST(request: Request) {
 
     if (sentEmails.length > 0) {
       // Fetch existing leads for this product with matching emails
-      const { data: existingLeads } = await supabaseAdmin
-        .from("leads")
-        .select("id, email")
-        .eq("product_id", product_id)
-        .in("email", sentEmails);
+      const existingLeads = await fetchExistingLeads(product_id, sentEmails);
 
       const existingEmailSet = new Set(
         (existingLeads ?? []).map((l: { email: string }) => l.email.toLowerCase())
@@ -240,11 +315,7 @@ export async function POST(request: Request) {
 
       // Update existing leads to WARM
       if (existingLeads && existingLeads.length > 0) {
-        await supabaseAdmin
-          .from("leads")
-          .update({ status: "WARM" })
-          .eq("product_id", product_id)
-          .in("email", sentEmails);
+        await updateLeadStatuses(product_id, sentEmails, "WARM");
       }
 
       // Insert new leads that don't exist yet, with WARM status
@@ -253,7 +324,7 @@ export async function POST(request: Request) {
         .map((b) => ({ product_id, name: b.name, email: b.email, status: "WARM" }));
 
       if (newLeads.length > 0) {
-        await supabaseAdmin.from("leads").insert(newLeads);
+        await insertRowsInBatches("leads", newLeads);
       }
 
       // Check if a FOLLOW-UP contact template exists for this product
@@ -281,7 +352,7 @@ export async function POST(request: Request) {
           }));
 
         if (scheduledRows.length > 0) {
-          await supabaseAdmin.from("scheduled_emails").insert(scheduledRows);
+          await insertRowsInBatches("scheduled_emails", scheduledRows);
         }
       }
     }
