@@ -193,7 +193,7 @@ function LeadsContent() {
     }
   }
 
-  function handleExportCSV() {
+  async function handleExportCSV() {
     const header = "#,Business Name,Email";
     const rows = businesses.map((b, i) =>
       `${i + 1},"${b.name.replace(/"/g, '""')}","${b.email.replace(/"/g, '""')}"`
@@ -206,6 +206,24 @@ function LeadsContent() {
     link.download = "leads.csv";
     link.click();
     URL.revokeObjectURL(url);
+
+    if (productIdParam && businesses.length > 0) {
+      setSavingLeads(true);
+      try {
+        const res = await fetchWithAuth("/api/leads", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ product_id: productIdParam, leads: businesses }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to save leads.");
+        setSendStatus({ type: "success", message: data.message });
+      } catch (err: any) {
+        showError("Error saving leads: " + err.message);
+      } finally {
+        setSavingLeads(false);
+      }
+    }
   }
 
   function handleRemoveLead(index: number) {
@@ -640,8 +658,9 @@ function LeadsContent() {
                   className="btn-export"
                   onClick={handleExportCSV}
                   type="button"
+                  disabled={savingLeads}
                 >
-                  Export CSV
+                  {savingLeads ? "Saving..." : "Export CSV"}
                 </button>
               </div>
             )}

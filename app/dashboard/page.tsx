@@ -28,6 +28,18 @@ const CONTACT_TYPE_NOTES: Record<ContactType, string> = {
   "FOLLOW-UP": "Sent to leads 5 days after the first-touch email to remind, re-engage or move the conversation forward",
 };
 
+const PLAN_MONTHLY_LEAD_LIMIT: Record<"Scale" | "Start" | "Free", number> = {
+  Free: 500,
+  Start: 5000,
+  Scale: 20000,
+};
+
+const PLAN_PRODUCT_LIMIT: Record<"Scale" | "Start" | "Free", number> = {
+  Free: 1,
+  Start: 5,
+  Scale: 20,
+};
+
 function ActionIcon({ kind }: { kind: "contacts" | "leads" | "find" | "edit" | "delete" | "send" | "email-config" }) {
   switch (kind) {
     case "contacts":
@@ -146,6 +158,12 @@ function DashboardContent() {
   // ── User ─────────────────────────────────────────────────────
   const [userId, setUserId] = useState("");
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [subscriptionPlan, setSubscriptionPlan] = useState<"Scale" | "Start" | "Free">("Free");
+  const [monthlyLeadCount, setMonthlyLeadCount] = useState(0);
+  const [productCount, setProductCount] = useState(0);
+  const [monthlyUsageLoading, setMonthlyUsageLoading] = useState(false);
+  const [checkoutLoadingPlan, setCheckoutLoadingPlan] = useState<"Start" | "Scale" | null>(null);
+  const [manageSubscriptionLoading, setManageSubscriptionLoading] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
 
   // ── Products ─────────────────────────────────────────────────
@@ -311,28 +329,182 @@ function DashboardContent() {
     if (selectedProduct) {
       if (panelMode === "contacts") fetchContacts();
       else if (panelMode === "leads") fetchLeads();
-      else if (panelMode === "email-config") fetchEmailConfig();
+      else if (panelMode === "email-config") {
+        if (subscriptionPlan === "Scale") {
+          fetchEmailConfig();
+        } else {
+          setEmailConfig(null);
+          setShowEmailConfigForm(false);
+        }
+      }
     } else {
       setContacts([]);
       setLeads([]);
       setEmailConfig(null);
       setLeadPage(1);
     }
-  }, [selectedProduct, panelMode, fetchContacts, fetchLeads, fetchEmailConfig]);
+  }, [selectedProduct, panelMode, subscriptionPlan, fetchContacts, fetchLeads, fetchEmailConfig]);
 
   useEffect(() => {
+    if (!products.length || selectedProduct) return;
     const requestedProductId = searchParams.get("product_id");
-    if (!requestedProductId || !products.length || selectedProduct) return;
-    const matched = products.find((product) => product.id === requestedProductId);
-    if (matched) {
-      setSelectedProduct(matched);
+    if (requestedProductId) {
+      const matched = products.find((product) => product.id === requestedProductId);
+      if (matched) {
+        setSelectedProduct(matched);
+        setPanelMode("leads");
+      }
+    } else {
+      setSelectedProduct(products[0]);
       setPanelMode("leads");
     }
   }, [products, searchParams, selectedProduct]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      if (!userEmail) {
+        if (!cancelled) setSubscriptionPlan("Free");
+        return;
+      }
+
+      try {
+        const res = await fetchWithAuth(
+          `/api/payment/subscription?email=${encodeURIComponent(userEmail)}`
+        );
+        const data = await res.json();
+
+        if (!cancelled && res.ok) {
+          const plan =
+            data?.plan === "Scale" || data?.plan === "Start" || data?.plan === "Free"
+              ? data.plan
+              : "Free";
+          setSubscriptionPlan(plan);
+        } else if (!cancelled) {
+          setSubscriptionPlan("Free");
+        }
+      } catch {
+        if (!cancelled) {
+          setSubscriptionPlan("Free");
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userEmail]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      if (!userId) {
+        if (!cancelled) {
+          setMonthlyLeadCount(0);
+          setProductCount(0);
+          setMonthlyUsageLoading(false);
+        }
+        return;
+      }
+
+      if (!cancelled) {
+        setMonthlyUsageLoading(true);
+      }
+
+      try {
+        const res = await fetchWithAuth("/api/usage/monthly");
+        const data = await res.json();
+
+        if (!cancelled && res.ok) {
+          const leadCount = Number(data?.leadCount);
+          const userProductCount = Number(data?.productCount);
+          setMonthlyLeadCount(Number.isFinite(leadCount) ? leadCount : 0);
+          setProductCount(Number.isFinite(userProductCount) ? userProductCount : 0);
+        } else if (!cancelled) {
+          setMonthlyLeadCount(0);
+          setProductCount(0);
+        }
+      } catch {
+        if (!cancelled) {
+          setMonthlyLeadCount(0);
+          setProductCount(0);
+        }
+      } finally {
+        if (!cancelled) {
+          setMonthlyUsageLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  const monthlyLeadLimit = PLAN_MONTHLY_LEAD_LIMIT[subscriptionPlan];
+  const isMonthlyLeadLimitReached = monthlyLeadCount >= monthlyLeadLimit;
+  const productLimit = PLAN_PRODUCT_LIMIT[subscriptionPlan];
+  const isProductLimitReached = productCount >= productLimit;
+
   async function handleLogout() {
     await supabase.auth.signOut();
     router.push("/login");
+  }
+
+  async function handleUpgrade(plan: "Start" | "Scale") {
+    if (!userEmail) {
+      setError("No user email found for checkout.");
+      return;
+    }
+
+    setCheckoutLoadingPlan(plan);
+    setError(null);
+
+    try {
+      const res = await fetchWithAuth(
+        `/api/payment/checkout?email=${encodeURIComponent(userEmail)}&plan=${encodeURIComponent(plan)}`
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to start checkout.");
+
+      const checkoutUrl = data?.checkoutUrl;
+      if (!checkoutUrl || typeof checkoutUrl !== "string") {
+        throw new Error("Checkout URL is missing.");
+      }
+
+      window.open(checkoutUrl, "_blank", "noopener,noreferrer");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to start checkout.");
+    } finally {
+      setCheckoutLoadingPlan(null);
+    }
+  }
+
+  async function handleManageSubscription() {
+    if (!userEmail) {
+      setError("No user email found.");
+      return;
+    }
+    setManageSubscriptionLoading(true);
+    setError(null);
+    try {
+      const res = await fetchWithAuth(
+        `/api/payment/manage?email=${encodeURIComponent(userEmail)}`
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to get subscription management URL.");
+      const subscriptionUrl = data?.subscriptionUrl;
+      if (!subscriptionUrl || typeof subscriptionUrl !== "string") {
+        throw new Error("Subscription management URL is missing.");
+      }
+      window.open(subscriptionUrl, "_blank", "noopener,noreferrer");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to open subscription management.");
+    } finally {
+      setManageSubscriptionLoading(false);
+    }
   }
 
   // ── Open panel ───────────────────────────────────────────────
@@ -345,6 +517,10 @@ function DashboardContent() {
 
   // ── Product CRUD ─────────────────────────────────────────────
   function openAddProduct() {
+    if (isProductLimitReached) {
+      setError(`You have reached the maximum number of products for ${subscriptionPlan} plan. Please upgrade your plan to create more products.`);
+      return;
+    }
     setEditingProduct(null);
     setProductForm(EMPTY_PRODUCT);
     setShowProductForm(true);
@@ -746,11 +922,530 @@ function DashboardContent() {
 
       {/* User bar */}
       <div className="card" style={{ marginBottom: "1.5rem" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: "1rem" }}>
           <div style={{ fontSize: "0.92rem", color: "#666" }}>
             Logged in as <strong>{userEmail ?? userId}</strong>
           </div>
-          <button type="button" className="btn-cancel" onClick={handleLogout}>
+          <div style={{ justifySelf: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.35rem" }}>
+            <div style={{ fontSize: "0.95rem", color: "#0f172a", fontWeight: 600, display: "flex", alignItems: "center", gap: "0.5rem", justifyContent: "center" }}>
+              <span>Plan: <strong>{subscriptionPlan}</strong></span>
+              {subscriptionPlan === "Free" && (
+                <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+                  <div
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: "18px",
+                      height: "18px",
+                      borderRadius: "50%",
+                      background: "#3b82f6",
+                      color: "#fff",
+                      fontSize: "0.75rem",
+                      fontWeight: 700,
+                      cursor: "help",
+                    }}
+                    title="Free plan details"
+                    onMouseEnter={(e) => {
+                      const tooltip = e.currentTarget.nextElementSibling as HTMLElement;
+                      if (tooltip) tooltip.style.opacity = "1";
+                    }}
+                    onMouseLeave={(e) => {
+                      const tooltip = e.currentTarget.nextElementSibling as HTMLElement;
+                      if (tooltip) tooltip.style.opacity = "0";
+                    }}
+                  >
+                    i
+                  </div>
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "calc(100% + 8px)",
+                      left: "50%",
+                      transform: "translateX(-50%)",
+                      background: "#1e293b",
+                      color: "#f1f5f9",
+                      padding: "0.75rem",
+                      borderRadius: "6px",
+                      fontSize: "0.84rem",
+                      lineHeight: "1.4",
+                      minWidth: "220px",
+                      opacity: 0,
+                      pointerEvents: "none",
+                      transition: "opacity 200ms ease",
+                      zIndex: 1000,
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.opacity = "1";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.opacity = "0";
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, marginBottom: "0.3rem" }}>Free: $0/month</div>
+                    <div>• 1 product</div>
+                    <div>• Up to 500 leads/month</div>
+                    <div>• AI email generation</div>
+                    <div>• Lead contact export</div>
+                    <div>• Email sending</div>
+                  </div>
+                </div>
+              )}
+              {subscriptionPlan === "Start" && (
+                <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+                  <div
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: "18px",
+                      height: "18px",
+                      borderRadius: "50%",
+                      background: "#06b6d4",
+                      color: "#fff",
+                      fontSize: "0.75rem",
+                      fontWeight: 700,
+                      cursor: "help",
+                    }}
+                    title="Start plan details"
+                    onMouseEnter={(e) => {
+                      const tooltip = e.currentTarget.nextElementSibling as HTMLElement;
+                      if (tooltip) tooltip.style.opacity = "1";
+                    }}
+                    onMouseLeave={(e) => {
+                      const tooltip = e.currentTarget.nextElementSibling as HTMLElement;
+                      if (tooltip) tooltip.style.opacity = "0";
+                    }}
+                  >
+                    i
+                  </div>
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "calc(100% + 8px)",
+                      left: "50%",
+                      transform: "translateX(-50%)",
+                      background: "#1e293b",
+                      color: "#f1f5f9",
+                      padding: "0.75rem",
+                      borderRadius: "6px",
+                      fontSize: "0.84rem",
+                      lineHeight: "1.4",
+                      minWidth: "220px",
+                      opacity: 0,
+                      pointerEvents: "none",
+                      transition: "opacity 200ms ease",
+                      zIndex: 1000,
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.opacity = "1"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.opacity = "0"; }}
+                  >
+                    <div style={{ fontWeight: 600, marginBottom: "0.25rem" }}>Start: $4.99/month</div>
+                    <div>• Up to 5 products</div>
+                    <div>• Up to 5,000 leads/month</div>
+                    <div>• AI target audience recommendation</div>
+                    <div>• AI email generation</div>
+                    <div>• Lead contact export</div>
+                    <div>• Email sending & scheduling</div>
+                    <div>• Lead management dashboard</div>
+                    <div>• Email support</div>
+                  </div>
+                </div>
+              )}
+              {subscriptionPlan === "Scale" && (
+                <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+                  <div
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: "18px",
+                      height: "18px",
+                      borderRadius: "50%",
+                      background: "#8b5cf6",
+                      color: "#fff",
+                      fontSize: "0.75rem",
+                      fontWeight: 700,
+                      cursor: "help",
+                    }}
+                    title="Scale plan details"
+                    onMouseEnter={(e) => {
+                      const tooltip = e.currentTarget.nextElementSibling as HTMLElement;
+                      if (tooltip) tooltip.style.opacity = "1";
+                    }}
+                    onMouseLeave={(e) => {
+                      const tooltip = e.currentTarget.nextElementSibling as HTMLElement;
+                      if (tooltip) tooltip.style.opacity = "0";
+                    }}
+                  >
+                    i
+                  </div>
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "calc(100% + 8px)",
+                      left: "50%",
+                      transform: "translateX(-50%)",
+                      background: "#1e293b",
+                      color: "#f1f5f9",
+                      padding: "0.75rem",
+                      borderRadius: "6px",
+                      fontSize: "0.84rem",
+                      lineHeight: "1.4",
+                      minWidth: "220px",
+                      opacity: 0,
+                      pointerEvents: "none",
+                      transition: "opacity 200ms ease",
+                      zIndex: 1000,
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.opacity = "1"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.opacity = "0"; }}
+                  >
+                    <div style={{ fontWeight: 600, marginBottom: "0.25rem" }}>Scale: $7.99/month</div>
+                    <div>• Up to 20 products</div>
+                    <div>• Up to 20,000 leads/month</div>
+                    <div>• AI target audience recommendation</div>
+                    <div>• AI email generation</div>
+                    <div>• Lead contact export</div>
+                    <div>• Email sending & scheduling</div>
+                    <div>• Follow-up sequence</div>
+                    <div>• Lead management dashboard</div>
+                    <div>• Use your own email domain</div>
+                    <div>• Priority support</div>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div style={{ fontSize: "0.83rem", color: isMonthlyLeadLimitReached ? "#b91c1c" : "#475569", fontWeight: 600 }}>
+              Leads this month: {monthlyUsageLoading ? "Loading..." : `${monthlyLeadCount.toLocaleString()} / ${monthlyLeadLimit.toLocaleString()}`}
+            </div>
+            {/* ── Free plan links ── */}
+            {subscriptionPlan === "Free" && (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.2rem" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", justifyContent: "center" }}>
+                  <button
+                    type="button"
+                    onClick={() => handleUpgrade("Start")}
+                    disabled={checkoutLoadingPlan !== null}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      padding: 0,
+                      margin: 0,
+                      color: "#2563eb",
+                      textDecoration: "underline",
+                      cursor: checkoutLoadingPlan ? "not-allowed" : "pointer",
+                      fontSize: "0.88rem",
+                    }}
+                  >
+                    {checkoutLoadingPlan === "Start" ? "Opening Start checkout..." : "Upgrade to Start"}
+                  </button>
+                  <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+                    <div
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        width: "16px",
+                        height: "16px",
+                        borderRadius: "50%",
+                        background: "#06b6d4",
+                        color: "#fff",
+                        fontSize: "0.7rem",
+                        fontWeight: 700,
+                        cursor: "help",
+                      }}
+                      title="Start plan details"
+                      onMouseEnter={(e) => {
+                        const tooltip = e.currentTarget.nextElementSibling as HTMLElement;
+                        if (tooltip) tooltip.style.opacity = "1";
+                      }}
+                      onMouseLeave={(e) => {
+                        const tooltip = e.currentTarget.nextElementSibling as HTMLElement;
+                        if (tooltip) tooltip.style.opacity = "0";
+                      }}
+                    >
+                      i
+                    </div>
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: "calc(100% + 6px)",
+                        left: "50%",
+                        transform: "translateX(-50%)",
+                        background: "#1e293b",
+                        color: "#f1f5f9",
+                        padding: "0.65rem",
+                        borderRadius: "6px",
+                        fontSize: "0.8rem",
+                        lineHeight: "1.35",
+                        minWidth: "220px",
+                        opacity: 0,
+                        pointerEvents: "none",
+                        transition: "opacity 200ms ease",
+                        zIndex: 1000,
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.opacity = "1";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.opacity = "0";
+                      }}
+                    >
+                      <div style={{ fontWeight: 600, marginBottom: "0.25rem" }}>Start: $4.99/month</div>
+                      <div>• Up to 5 products</div>
+                      <div>• Up to 5,000 leads/month</div>
+                      <div>• AI target audience recommendation</div>
+                      <div>• AI email generation</div>
+                      <div>• Lead contact export</div>
+                      <div>• Email sending & scheduling</div>
+                      <div>• Lead management dashboard</div>
+                      <div>• Email support</div>
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", justifyContent: "center" }}>
+                  <button
+                    type="button"
+                    onClick={() => handleUpgrade("Scale")}
+                    disabled={checkoutLoadingPlan !== null}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      padding: 0,
+                      margin: 0,
+                      color: "#2563eb",
+                      textDecoration: "underline",
+                      cursor: checkoutLoadingPlan ? "not-allowed" : "pointer",
+                      fontSize: "0.88rem",
+                    }}
+                  >
+                    {checkoutLoadingPlan === "Scale" ? "Opening Scale checkout..." : "Upgrade to Scale"}
+                  </button>
+                  <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+                    <div
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        width: "16px",
+                        height: "16px",
+                        borderRadius: "50%",
+                        background: "#8b5cf6",
+                        color: "#fff",
+                        fontSize: "0.7rem",
+                        fontWeight: 700,
+                        cursor: "help",
+                      }}
+                      title="Scale plan details"
+                      onMouseEnter={(e) => {
+                        const tooltip = e.currentTarget.nextElementSibling as HTMLElement;
+                        if (tooltip) tooltip.style.opacity = "1";
+                      }}
+                      onMouseLeave={(e) => {
+                        const tooltip = e.currentTarget.nextElementSibling as HTMLElement;
+                        if (tooltip) tooltip.style.opacity = "0";
+                      }}
+                    >
+                      i
+                    </div>
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: "calc(100% + 6px)",
+                        left: "50%",
+                        transform: "translateX(-50%)",
+                        background: "#1e293b",
+                        color: "#f1f5f9",
+                        padding: "0.65rem",
+                        borderRadius: "6px",
+                        fontSize: "0.8rem",
+                        lineHeight: "1.35",
+                        minWidth: "220px",
+                        opacity: 0,
+                        pointerEvents: "none",
+                        transition: "opacity 200ms ease",
+                        zIndex: 1000,
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.opacity = "1";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.opacity = "0";
+                      }}
+                    >
+                      <div style={{ fontWeight: 600, marginBottom: "0.25rem" }}>Scale: $7.99/month</div>
+                      <div>• Up to 20 products</div>
+                      <div>• Up to 20,000 leads/month</div>
+                      <div>• AI target audience recommendation</div>
+                      <div>• AI email generation</div>
+                      <div>• Lead contact export</div>
+                      <div>• Email sending & scheduling</div>
+                      <div>• Follow-up sequence</div>
+                      <div>• Lead management dashboard</div>
+                      <div>• Use your own email domain</div>
+                      <div>• Priority support</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Start plan links ── */}
+            {subscriptionPlan === "Start" && (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.2rem" }}>
+                {/* Upgrade to Scale */}
+                <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", justifyContent: "center" }}>
+                  <button
+                    type="button"
+                    onClick={() => handleUpgrade("Scale")}
+                    disabled={checkoutLoadingPlan !== null}
+                    style={{
+                      background: "none", border: "none", padding: 0, margin: 0,
+                      color: "#2563eb", textDecoration: "underline",
+                      cursor: checkoutLoadingPlan ? "not-allowed" : "pointer", fontSize: "0.88rem",
+                    }}
+                  >
+                    {checkoutLoadingPlan === "Scale" ? "Opening Scale checkout..." : "Upgrade to Scale"}
+                  </button>
+                  <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+                    <div
+                      style={{
+                        display: "inline-flex", alignItems: "center", justifyContent: "center",
+                        width: "16px", height: "16px", borderRadius: "50%",
+                        background: "#8b5cf6", color: "#fff", fontSize: "0.7rem", fontWeight: 700, cursor: "help",
+                      }}
+                      title="Scale plan details"
+                      onMouseEnter={(e) => { const t = e.currentTarget.nextElementSibling as HTMLElement; if (t) t.style.opacity = "1"; }}
+                      onMouseLeave={(e) => { const t = e.currentTarget.nextElementSibling as HTMLElement; if (t) t.style.opacity = "0"; }}
+                    >i</div>
+                    <div
+                      style={{
+                        position: "absolute", top: "calc(100% + 6px)", left: "50%", transform: "translateX(-50%)",
+                        background: "#1e293b", color: "#f1f5f9", padding: "0.65rem", borderRadius: "6px",
+                        fontSize: "0.8rem", lineHeight: "1.35", minWidth: "220px",
+                        opacity: 0, pointerEvents: "none", transition: "opacity 200ms ease", zIndex: 1000,
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.opacity = "1"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.opacity = "0"; }}
+                    >
+                      <div style={{ fontWeight: 600, marginBottom: "0.25rem" }}>Scale: $7.99/month</div>
+                      <div>• Up to 20 products</div>
+                      <div>• Up to 20,000 leads/month</div>
+                      <div>• AI target audience recommendation</div>
+                      <div>• AI email generation</div>
+                      <div>• Lead contact export</div>
+                      <div>• Email sending & scheduling</div>
+                      <div>• Follow-up sequence</div>
+                      <div>• Lead management dashboard</div>
+                      <div>• Use your own email domain</div>
+                      <div>• Priority support</div>
+                    </div>
+                  </div>
+                </div>
+                {/* Manage Subscription */}
+                <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", justifyContent: "center" }}>
+                  <button
+                    type="button"
+                    onClick={handleManageSubscription}
+                    disabled={manageSubscriptionLoading}
+                    style={{
+                      background: "none", border: "none", padding: 0, margin: 0,
+                      color: "#2563eb", textDecoration: "underline",
+                      cursor: manageSubscriptionLoading ? "not-allowed" : "pointer", fontSize: "0.88rem",
+                    }}
+                  >
+                    {manageSubscriptionLoading ? "Opening..." : "Manage Subscription"}
+                  </button>
+                  <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+                    <div
+                      style={{
+                        display: "inline-flex", alignItems: "center", justifyContent: "center",
+                        width: "16px", height: "16px", borderRadius: "50%",
+                        background: "#64748b", color: "#fff", fontSize: "0.7rem", fontWeight: 700, cursor: "help",
+                      }}
+                      title="Manage subscription"
+                      onMouseEnter={(e) => { const t = e.currentTarget.nextElementSibling as HTMLElement; if (t) t.style.opacity = "1"; }}
+                      onMouseLeave={(e) => { const t = e.currentTarget.nextElementSibling as HTMLElement; if (t) t.style.opacity = "0"; }}
+                    >i</div>
+                    <div
+                      style={{
+                        position: "absolute", top: "calc(100% + 6px)", left: "50%", transform: "translateX(-50%)",
+                        background: "#1e293b", color: "#f1f5f9", padding: "0.65rem", borderRadius: "6px",
+                        fontSize: "0.8rem", lineHeight: "1.35", minWidth: "240px",
+                        opacity: 0, pointerEvents: "none", transition: "opacity 200ms ease", zIndex: 1000,
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.opacity = "1"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.opacity = "0"; }}
+                    >
+                      Click here to change your payment method or cancel subscription
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Scale plan links ── */}
+            {subscriptionPlan === "Scale" && (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.2rem" }}>
+                {/* Downgrade to Start */}
+                <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", justifyContent: "center" }}>
+                  <button
+                    type="button"
+                    onClick={() => handleUpgrade("Start")}
+                    disabled={checkoutLoadingPlan !== null}
+                    style={{
+                      background: "none", border: "none", padding: 0, margin: 0,
+                      color: "#2563eb", textDecoration: "underline",
+                      cursor: checkoutLoadingPlan ? "not-allowed" : "pointer", fontSize: "0.88rem",
+                    }}
+                  >
+                    {checkoutLoadingPlan === "Start" ? "Opening Start checkout..." : "Downgrade to Start"}
+                  </button>
+                </div>
+                {/* Manage Subscription */}
+                <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", justifyContent: "center" }}>
+                  <button
+                    type="button"
+                    onClick={handleManageSubscription}
+                    disabled={manageSubscriptionLoading}
+                    style={{
+                      background: "none", border: "none", padding: 0, margin: 0,
+                      color: "#2563eb", textDecoration: "underline",
+                      cursor: manageSubscriptionLoading ? "not-allowed" : "pointer", fontSize: "0.88rem",
+                    }}
+                  >
+                    {manageSubscriptionLoading ? "Opening..." : "Manage Subscription"}
+                  </button>
+                  <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+                    <div
+                      style={{
+                        display: "inline-flex", alignItems: "center", justifyContent: "center",
+                        width: "16px", height: "16px", borderRadius: "50%",
+                        background: "#64748b", color: "#fff", fontSize: "0.7rem", fontWeight: 700, cursor: "help",
+                      }}
+                      title="Manage subscription"
+                      onMouseEnter={(e) => { const t = e.currentTarget.nextElementSibling as HTMLElement; if (t) t.style.opacity = "1"; }}
+                      onMouseLeave={(e) => { const t = e.currentTarget.nextElementSibling as HTMLElement; if (t) t.style.opacity = "0"; }}
+                    >i</div>
+                    <div
+                      style={{
+                        position: "absolute", top: "calc(100% + 6px)", left: "50%", transform: "translateX(-50%)",
+                        background: "#1e293b", color: "#f1f5f9", padding: "0.65rem", borderRadius: "6px",
+                        fontSize: "0.8rem", lineHeight: "1.35", minWidth: "240px",
+                        opacity: 0, pointerEvents: "none", transition: "opacity 200ms ease", zIndex: 1000,
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.opacity = "1"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.opacity = "0"; }}
+                    >
+                      Click here to change your payment method or cancel subscription
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+          <button type="button" className="btn-cancel" onClick={handleLogout} style={{ justifySelf: "end" }}>
             Logout
           </button>
         </div>
@@ -769,7 +1464,18 @@ function DashboardContent() {
           <div className="panel">
             <div className="panel-header">
               <h2>Products</h2>
-              <button className="btn-generate" onClick={openAddProduct} type="button">
+              <button
+                className="btn-generate"
+                onClick={openAddProduct}
+                type="button"
+                disabled={isProductLimitReached}
+                title={
+                  isProductLimitReached
+                    ? `You have reached the maximum number of products for ${subscriptionPlan} plan. Please upgrade your plan to create more products.`
+                    : undefined
+                }
+                style={isProductLimitReached ? { opacity: 0.6, cursor: "not-allowed" } : undefined}
+              >
                 + Add Product
               </button>
             </div>
@@ -824,6 +1530,7 @@ function DashboardContent() {
               <ul className="item-list">
                 {products.map((p) => {
                   const isSelected = selectedProduct?.id === p.id;
+                  const disableFindLeads = isMonthlyLeadLimitReached;
                   return (
                     <li key={p.id} className={`item-card ${isSelected ? "item-card--selected" : ""}`}>
                       <div className="item-card__body">
@@ -864,6 +1571,14 @@ function DashboardContent() {
                         <a
                           href={`/leads/${encodeURIComponent(p.id)}`}
                           className="btn-action btn-action--find-leads"
+                          aria-disabled={disableFindLeads}
+                          onClick={(e) => {
+                            if (disableFindLeads) {
+                              e.preventDefault();
+                            }
+                          }}
+                          style={disableFindLeads ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
+                          title={disableFindLeads ? `You have exceeded the monthly lead quota for ${subscriptionPlan} plan. Please upgrade your plan to find more leads.` : undefined}
                         >
                           <ActionIcon kind="find" />
                           Find Leads
@@ -1021,7 +1736,40 @@ function DashboardContent() {
                   </div>
                 </div>
 
-                {showEmailConfigForm ? (
+                {subscriptionPlan !== "Scale" ? (
+                  <div className="item-card" style={{ marginTop: "0.75rem" }}>
+                    <div className="item-card__body">
+                      <div className="item-card__title" style={{ marginBottom: "0.5rem" }}>Scale Plan Feature</div>
+                      <div className="item-card__sub" style={{ marginBottom: "0.75rem" }}>
+                        Configure Email Server is only available on the Scale plan.
+                      </div>
+                      <div className="item-card__sub" style={{ marginBottom: "0.75rem" }}>
+                        On Free or Start plan, emails will be sent from our leaddaily.app domain.
+                      </div>
+                      <div className="item-card__sub" style={{ marginBottom: "1rem" }}>
+                        Upgrade to Scale to connect your own email domain and SMTP server.
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleUpgrade("Scale")}
+                        disabled={checkoutLoadingPlan !== null}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          padding: 0,
+                          margin: 0,
+                          color: "#2563eb",
+                          textDecoration: "underline",
+                          cursor: checkoutLoadingPlan ? "not-allowed" : "pointer",
+                          fontSize: "0.92rem",
+                          fontWeight: 600,
+                        }}
+                      >
+                        {checkoutLoadingPlan === "Scale" ? "Opening Scale checkout..." : "Upgrade to Scale"}
+                      </button>
+                    </div>
+                  </div>
+                ) : showEmailConfigForm ? (
                   <form className="inline-form" onSubmit={handleSaveEmailConfig}>
                     <h3 style={{ marginBottom: "0.75rem" }}>{emailConfig ? "Edit Email Server" : "Add Email Server"}</h3>
                     <label>SMTP Host *</label>
@@ -1178,7 +1926,7 @@ function DashboardContent() {
                     <div>
                       <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>Daily Schedule</div>
                       <div style={{ fontSize: "0.82rem", color: "#64748b" }}>
-                        Auto-send the cold + follow-up flow to up to 100 cold leads daily.
+                        Automatically send the cold + follow-up emails to 100 cold leads daily.
                       </div>
                     </div>
                     <div style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", fontWeight: 600, fontSize: "0.9rem" }}>

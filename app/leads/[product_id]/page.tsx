@@ -19,6 +19,12 @@ interface Contact {
   content: string;
 }
 
+const PLAN_MONTHLY_LEAD_LIMIT: Record<"Scale" | "Start" | "Free", number> = {
+  Free: 500,
+  Start: 5000,
+  Scale: 20000,
+};
+
 export default function Home() {
   const router = useRouter();
   const { product_id: productIdParam } = useParams<{ product_id: string }>();
@@ -33,6 +39,8 @@ export default function Home() {
   const [savingContact, setSavingContact] = useState(false);
   const [generatingContactId, setGeneratingContactId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [subscriptionPlan, setSubscriptionPlan] = useState<"Scale" | "Start" | "Free">("Free");
+  const [monthlyLeadCount, setMonthlyLeadCount] = useState(0);
 
   function showError(msg: string) {
     setErrorMessage(msg);
@@ -58,14 +66,18 @@ export default function Home() {
       }
 
       try {
-        const [productRes, contactsRes] = await Promise.all([
+        const [productRes, contactsRes, usageRes, subscriptionRes] = await Promise.all([
           fetchWithAuth(`/api/products/${encodeURIComponent(productId)}`),
           fetchWithAuth(`/api/contacts?product_id=${encodeURIComponent(productId)}`),
+          fetchWithAuth("/api/usage/monthly"),
+          fetchWithAuth(`/api/payment/subscription?email=${encodeURIComponent(session.user.email ?? "")}`),
         ]);
 
-        const [productData, contactsData] = await Promise.all([
+        const [productData, contactsData, usageData, subscriptionData] = await Promise.all([
           productRes.json(),
           contactsRes.json(),
+          usageRes.json(),
+          subscriptionRes.json(),
         ]);
 
         if (!productRes.ok) throw new Error(productData.error || "Unauthorized product.");
@@ -83,6 +95,16 @@ export default function Home() {
               return real ?? placeholder;
             })
           );
+        }
+        if (usageRes.ok) {
+          const count = Number(usageData?.leadCount);
+          setMonthlyLeadCount(Number.isFinite(count) ? count : 0);
+        }
+        if (subscriptionRes.ok) {
+          const plan = subscriptionData?.plan;
+          if (plan === "Scale" || plan === "Start" || plan === "Free") {
+            setSubscriptionPlan(plan);
+          }
         }
       } catch {
         showError("You are not allowed to access this product.");
@@ -346,6 +368,9 @@ export default function Home() {
     }
   }
 
+  const monthlyLeadLimit = PLAN_MONTHLY_LEAD_LIMIT[subscriptionPlan];
+  const isMonthlyLeadLimitReached = monthlyLeadCount >= monthlyLeadLimit;
+
   const wordCount = getWordCount(productDescription);
 
   return (
@@ -592,7 +617,17 @@ export default function Home() {
             The more specific the target audience, the better the leads. Leave blank to enter lead's emails manually.
           </p>
 
-          <button className="btn-search" type="submit" disabled={searching}>
+          <button
+            className="btn-search"
+            type="submit"
+            disabled={searching || isMonthlyLeadLimitReached}
+            title={
+              isMonthlyLeadLimitReached
+                ? `You have exceeded the monthly lead quota for ${subscriptionPlan} plan. Please upgrade your plan to find more leads.`
+                : undefined
+            }
+            style={isMonthlyLeadLimitReached ? { opacity: 0.6, cursor: "not-allowed" } : undefined}
+          >
             {searching ? (
               <>
                 <span className="spinner" />

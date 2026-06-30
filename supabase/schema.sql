@@ -51,7 +51,8 @@ CREATE TABLE leads (
   product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
   name       TEXT NOT NULL,
   email      TEXT NOT NULL,
-  status     lead_status NOT NULL DEFAULT 'COLD'
+  status     lead_status NOT NULL DEFAULT 'COLD',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- ============================================================
@@ -73,6 +74,7 @@ CREATE TABLE contacts (
 
 CREATE INDEX idx_products_user_id    ON products(user_id);
 CREATE INDEX idx_leads_product_id    ON leads(product_id);
+CREATE INDEX idx_leads_product_id_created_at ON leads(product_id, created_at DESC);
 CREATE INDEX idx_contacts_product_id ON contacts(product_id);
 
 -- ============================================================
@@ -132,3 +134,13 @@ CREATE TABLE email_config (
 );
 
 CREATE INDEX idx_email_config_product_id ON email_config(product_id);
+
+-- ============================================================
+-- MIGRATION HELPERS (for existing databases)
+-- ============================================================
+
+ALTER TABLE leads
+ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+CREATE INDEX IF NOT EXISTS idx_leads_product_id_created_at
+ON leads(product_id, created_at DESC);
