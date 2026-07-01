@@ -623,7 +623,7 @@ export default function Home() {
             disabled={searching || isMonthlyLeadLimitReached}
             title={
               isMonthlyLeadLimitReached
-                ? `You have exceeded the monthly lead quota for ${subscriptionPlan} plan. Please upgrade your plan to find more leads.`
+                ? `You have exceeded the monthly lead quota for ${subscriptionPlan} plan. Please go to dashboard and upgrade your plan to find more leads.`
                 : undefined
             }
             style={isMonthlyLeadLimitReached ? { opacity: 0.6, cursor: "not-allowed" } : undefined}
