@@ -188,6 +188,13 @@ function LoginContent() {
             {mode === "login" ? "Register" : "Login"}
           </button>
         </div>
+
+        <p style={{ marginTop: "0.75rem", color: "#555", fontSize: "0.95rem" }}>
+          Curious about how leaddaily.app works?{" "}
+          <a href="https://my.leaddaily.app/leads" target="_blank" rel="noopener noreferrer">
+            Try the demo page here.
+          </a>
+        </p>
       </div>
     </main>
   );
