@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useState, useEffect, useCallback, FormEvent, Suspense } from "react";
+import { useState, useEffect, useCallback, useRef, FormEvent, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Product, Contact, Lead, ContactType, LeadStatus, EmailConfig } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
@@ -171,6 +171,7 @@ function DashboardContent() {
   const [productsLoading, setProductsLoading] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [panelMode, setPanelMode] = useState<PanelMode>("leads");
+  const workingAreaRef = useRef<HTMLDivElement | null>(null);
 
   const [showProductForm, setShowProductForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -513,6 +514,9 @@ function DashboardContent() {
     setPanelMode(mode);
     setShowContactForm(false);
     setShowEmailConfigForm(false);
+    requestAnimationFrame(() => {
+      workingAreaRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   }
 
   // ── Product CRUD ─────────────────────────────────────────────
@@ -1461,7 +1465,7 @@ function DashboardContent() {
         <div className="dashboard-grid">
 
           {/* ── Products Panel ──────────────────────────── */}
-          <div className="panel">
+          <div className="panel" ref={workingAreaRef}>
             <div className="panel-header">
               <h2>Products</h2>
               <button
@@ -1612,7 +1616,7 @@ function DashboardContent() {
               <>
                 <div className="panel-header">
                   <div>
-                    <h2>Contact Emails</h2>
+                    <h2>Manage Emails</h2>
                     <p className="panel-subheader">for <strong>{selectedProduct.name}</strong></p>
                   </div>
                 </div>
@@ -1890,7 +1894,7 @@ function DashboardContent() {
               <>
                 <div className="panel-header">
                   <div>
-                    <h2>Leads</h2>
+                    <h2>Manage Leads</h2>
                     <p className="panel-subheader">for <strong>{selectedProduct.name}</strong></p>
                   </div>
                   <div className="leads-filter">
