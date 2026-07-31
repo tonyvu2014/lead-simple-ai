@@ -1930,7 +1930,7 @@ function DashboardContent() {
                     <div>
                       <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>Daily Schedule</div>
                       <div style={{ fontSize: "0.82rem", color: "#64748b" }}>
-                        Automatically send the cold + follow-up emails to 100 cold leads daily.
+                        Automatically send the cold + follow-up emails to 200 cold leads daily.
                       </div>
                     </div>
                     <div style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", fontWeight: 600, fontSize: "0.9rem" }}>
