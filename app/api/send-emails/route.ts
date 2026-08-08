@@ -79,6 +79,20 @@ async function updateLeadStatuses(productId: string, emails: string[], status: "
   }
 }
 
+async function deleteLeadsByEmails(productId: string, emails: string[]) {
+  for (const batch of chunkArray(emails, EMAIL_QUERY_BATCH_SIZE)) {
+    const { error } = await supabaseAdmin
+      .from("leads")
+      .delete()
+      .eq("product_id", productId)
+      .in("email", batch);
+
+    if (error) {
+      throw error;
+    }
+  }
+}
+
 async function insertRowsInBatches<T extends Record<string, unknown>>(table: string, rows: T[]) {
   for (const batch of chunkArray(rows, INSERT_BATCH_SIZE)) {
     const { error } = await supabaseAdmin.from(table).insert(batch);
@@ -206,6 +220,9 @@ export async function POST(request: Request) {
     if (eligibleBusinesses.length === 0) {
       return NextResponse.json({
         message: "No eligible leads to email. All provided leads have already been contacted.",
+        sentCount: 0,
+        failedCount: 0,
+        removedFailedLeadCount: 0,
         results: businesses.map((b) => ({ email: b.email, status: "skipped" })),
       });
     }
@@ -295,6 +312,7 @@ export async function POST(request: Request) {
 
   const sentCount = results.filter((r) => r.status === "sent").length;
   const failedCount = results.filter((r) => r.status === "failed").length;
+  let removedFailedLeadCount = 0;
 
   console.log('Results:', results);
 
@@ -304,6 +322,18 @@ export async function POST(request: Request) {
     const sentEmails = results
       .filter((r) => r.status === "sent")
       .map((r) => r.email.toLowerCase());
+    const failedEmails = Array.from(
+      new Set(
+        results
+          .filter((r) => r.status === "failed")
+          .map((r) => r.email.toLowerCase())
+      )
+    );
+
+    if (failedEmails.length > 0) {
+      await deleteLeadsByEmails(product_id, failedEmails);
+      removedFailedLeadCount = failedEmails.length;
+    }
 
     if (sentEmails.length > 0) {
       // Fetch existing leads for this product with matching emails
@@ -360,6 +390,9 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     message: `Email sending complete. ${sentCount} sent, ${failedCount} failed.`,
+    sentCount,
+    failedCount,
+    removedFailedLeadCount,
     results,
   });
 }

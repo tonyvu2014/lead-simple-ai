@@ -11,6 +11,7 @@ type LeadRow = {
   name: string;
   email: string;
   status: string;
+  created_at?: string;
 };
 
 function chunkArray<T>(items: T[], chunkSize: number) {
@@ -28,9 +29,9 @@ async function fetchAllProductLeads(productId: string) {
     const to = from + SELECT_PAGE_SIZE - 1;
     const { data, error } = await supabaseAdmin
       .from("leads")
-      .select("id, product_id, name, email, status")
+      .select("id, product_id, name, email, status, created_at")
       .eq("product_id", productId)
-      .order("name")
+      .order("created_at", { ascending: true })
       .range(from, to);
 
     if (error) {
@@ -160,4 +161,50 @@ export async function POST(request: Request) {
     skipped,
     message: `${newLeads.length} lead${newLeads.length !== 1 ? "s" : ""} saved.${skipped > 0 ? ` ${skipped} duplicate${skipped !== 1 ? "s" : ""} skipped.` : ""}`,
   });
+}
+
+export async function DELETE(request: Request) {
+  const body = await request.json().catch(() => ({}));
+  const { searchParams } = new URL(request.url);
+
+  const product_id =
+    typeof body?.product_id === "string"
+      ? body.product_id
+      : searchParams.get("product_id");
+
+  const lead_id =
+    typeof body?.lead_id === "string" && body.lead_id.trim()
+      ? body.lead_id.trim()
+      : searchParams.get("lead_id");
+
+  const email =
+    typeof body?.email === "string" && body.email.trim()
+      ? body.email.trim()
+      : searchParams.get("email");
+
+  if (!product_id) {
+    return NextResponse.json({ error: "product_id is required." }, { status: 400 });
+  }
+
+  if (!lead_id && !email) {
+    return NextResponse.json({ error: "lead_id or email is required." }, { status: 400 });
+  }
+
+  const ownership = await requireOwnedProduct(request, product_id);
+  if ("response" in ownership) return ownership.response;
+
+  let deleteQuery = supabaseAdmin.from("leads").delete().eq("product_id", product_id);
+
+  if (lead_id) {
+    deleteQuery = deleteQuery.eq("id", lead_id);
+  } else {
+    deleteQuery = deleteQuery.eq("email", email!);
+  }
+
+  const { error } = await deleteQuery;
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ message: "Lead removed." });
 }

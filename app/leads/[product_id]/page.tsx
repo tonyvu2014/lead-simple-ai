@@ -135,6 +135,18 @@ export default function Home() {
   const [manualMode, setManualMode] = useState(false);
   const [manualEmailsError, setManualEmailsError] = useState("");
   const [savingLeads, setSavingLeads] = useState(false);
+  const [leadPage, setLeadPage] = useState(1);
+  const LEADS_PER_PAGE = 25;
+
+  const totalLeadPages = Math.max(1, Math.ceil(businesses.length / LEADS_PER_PAGE));
+  const pageStart = (leadPage - 1) * LEADS_PER_PAGE;
+  const paginatedBusinesses = businesses.slice(pageStart, pageStart + LEADS_PER_PAGE);
+
+  useEffect(() => {
+    if (leadPage > totalLeadPages) {
+      setLeadPage(totalLeadPages);
+    }
+  }, [leadPage, totalLeadPages]);
 
   function getWordCount(text: string) {
     return text.trim().split(/\s+/).filter(Boolean).length;
@@ -184,6 +196,7 @@ export default function Home() {
     if (!prompt.trim()) {
       setManualMode(true);
       setBusinesses([]);
+      setLeadPage(1);
       setShowResults(true);
       setSearching(false);
       return;
@@ -205,6 +218,7 @@ export default function Home() {
       }
 
       setBusinesses(data.businesses || []);
+      setLeadPage(1);
       setShowResults(true);
     } catch (err: any) {
       showError("Error: " + err.message);
@@ -264,7 +278,7 @@ export default function Home() {
       return;
     }
 
-    let emailsToSend: Business[] = businesses;
+    let emailsToSend: Business[] = paginatedBusinesses;
     if (manualMode) {
       // Parse manualEmails (comma separated)
       const emails = manualEmails
@@ -287,7 +301,7 @@ export default function Home() {
       setManualEmailsError("");
       emailsToSend = emails.map((email) => ({ name: "", email }));
     } else {
-      if (businesses.length === 0) {
+      if (emailsToSend.length === 0) {
         showError("No businesses to send emails to.");
         return;
       }
@@ -309,7 +323,12 @@ export default function Home() {
         throw new Error(data.error || "Failed to send emails.");
       }
 
-      setSendStatus({ type: "success", message: data.message });
+      const sentCount = Number(data.sentCount) || 0;
+      const failedCount = Number(data.failedCount) || 0;
+      setSendStatus({
+        type: "success",
+        message: `Email sending complete. ${sentCount} sent, ${failedCount} failed.`,
+      });
     } catch (err: any) {
       setSendStatus({ type: "error", message: "Error: " + err.message });
     } finally {
@@ -697,15 +716,15 @@ export default function Home() {
                   </tr>
                 </thead>
                 <tbody>
-                  {businesses.map((b, i) => (
+                  {paginatedBusinesses.map((b, i) => (
                     <tr key={i}>
-                      <td>{i + 1}</td>
+                      <td>{pageStart + i + 1}</td>
                       <td>{b.name}</td>
                       <td>{b.email}</td>
                       <td>
                         <button
                           type="button"
-                          onClick={() => handleRemoveLead(i)}
+                          onClick={() => handleRemoveLead(pageStart + i)}
                           style={{
                             background: "#ef4444",
                             color: "#fff",
@@ -724,6 +743,32 @@ export default function Home() {
                 </tbody>
               </table>
 
+              {totalLeadPages > 1 && (
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.75rem", gap: "0.75rem" }}>
+                  <button
+                    type="button"
+                    className="btn-export"
+                    onClick={() => setLeadPage((p) => Math.max(1, p - 1))}
+                    disabled={leadPage === 1}
+                    style={{ padding: "0.4rem 0.85rem" }}
+                  >
+                    ← Prev
+                  </button>
+                  <span style={{ fontSize: "0.9rem", color: "#555" }}>
+                    Page {leadPage} of {totalLeadPages} · {businesses.length} leads
+                  </span>
+                  <button
+                    type="button"
+                    className="btn-export"
+                    onClick={() => setLeadPage((p) => Math.min(totalLeadPages, p + 1))}
+                    disabled={leadPage === totalLeadPages}
+                    style={{ padding: "0.4rem 0.85rem" }}
+                  >
+                    Next →
+                  </button>
+                </div>
+              )}
+
               {!isProductLocked && (
                 <p style={{ marginTop: "1rem", fontSize: "0.9rem", color: "#555" }}>
                   To send or schedule emails to thousands more leads, register for early access to LeadDaily.App at{" "}
@@ -733,14 +778,16 @@ export default function Home() {
                 </p>
               )}
               <div style={{ display: "flex", gap: "1rem", marginTop: "0.75rem" }}>
-                <button
-                  className="btn-send"
-                  onClick={handleSend}
-                  type="button"
-                  disabled={!isProductLocked || sending}
-                >
-                  {sending ? "Sending..." : "Send Emails"}
-                </button>
+                {isProductLocked && (
+                  <button
+                    className="btn-send"
+                    onClick={handleSend}
+                    type="button"
+                    disabled={sending || paginatedBusinesses.length === 0}
+                  >
+                    {sending ? "Sending..." : "Send Email"}
+                  </button>
+                )}
                 {isProductLocked && (
                   <button
                     className="btn-send"
@@ -788,7 +835,7 @@ export default function Home() {
               )}
               <button
                 className="btn-send"
-                onClick={handleSend}
+                onClick={() => handleSend()}
                 type="button"
                 disabled={sending}
               >

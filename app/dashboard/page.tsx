@@ -201,7 +201,7 @@ function DashboardContent() {
   // ── Leads ─────────────────────────────────────────────────────
   const [leads, setLeads] = useState<Lead[]>([]);
   const [leadsLoading, setLeadsLoading] = useState(false);
-  const [sendingLeadId, setSendingLeadId] = useState<string | null>(null);
+  const [sendingPageEmails, setSendingPageEmails] = useState(false);
   const [modalMessage, setModalMessage] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<
     | { type: "product"; product: Product }
@@ -213,6 +213,14 @@ function DashboardContent() {
   const [leadPage, setLeadPage] = useState(1);
   const [dailyScheduleSaving, setDailyScheduleSaving] = useState(false);
   const LEADS_PER_PAGE = 25;
+
+  const filteredLeads = leadStatusFilter === "ALL"
+    ? leads
+    : leads.filter((l) => l.status === leadStatusFilter);
+  const totalLeadPages = Math.max(1, Math.ceil(filteredLeads.length / LEADS_PER_PAGE));
+  const pageStart = (leadPage - 1) * LEADS_PER_PAGE;
+  const paginatedLeads = filteredLeads.slice(pageStart, pageStart + LEADS_PER_PAGE);
+  const coldLeadsOnPage = paginatedLeads.filter((lead) => lead.status === "COLD");
 
   // ── Errors ────────────────────────────────────────────────────
   const [error, setError] = useState<string | null>(null);
@@ -360,6 +368,12 @@ function DashboardContent() {
       setPanelMode("leads");
     }
   }, [products, searchParams, selectedProduct]);
+
+  useEffect(() => {
+    if (leadPage > totalLeadPages) {
+      setLeadPage(totalLeadPages);
+    }
+  }, [leadPage, totalLeadPages]);
 
   useEffect(() => {
     let cancelled = false;
@@ -831,47 +845,87 @@ function DashboardContent() {
     }
   }
 
-  // ── Send cold email ─────────────────────────────────────────
-  async function handleSendColdEmail(lead: Lead) {
+  async function handleRemoveLead(lead: Lead) {
     if (!selectedProduct) return;
-    setSendingLeadId(lead.id);
+    setError(null);
     try {
-      // Fetch contacts to get COLD template
+      const res = await fetchWithAuth("/api/leads", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ product_id: selectedProduct.id, lead_id: lead.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to remove lead.");
+
+      setLeads((prev) => prev.filter((l) => l.id !== lead.id));
+    } catch (err: unknown) {
+      setModalMessage(err instanceof Error ? err.message : "An unexpected error occurred.");
+    }
+  }
+
+  async function handleSendColdLeadsOnPage() {
+    if (!selectedProduct) return;
+    if (coldLeadsOnPage.length === 0) {
+      setModalMessage("No COLD leads on this page to send.");
+      return;
+    }
+
+    setSendingPageEmails(true);
+    try {
       const contactsRes = await fetchWithAuth(`/api/contacts?product_id=${encodeURIComponent(selectedProduct.id)}`);
       const contactsData = await contactsRes.json();
       if (!contactsRes.ok) throw new Error(contactsData.error || "Failed to fetch email templates.");
       const coldTemplate = (contactsData.contacts ?? []).find(
         (c: { type: string }) => c.type === "COLD"
       ) as { subject: string; content: string } | undefined;
+
       if (!coldTemplate) {
         setModalMessage("No COLD email template found for this product. Please set one in Email Templates first.");
         return;
       }
-      const emailBody = coldTemplate.content.replace(/\{\{name\}\}/g, lead.name);
+
       const sendRes = await fetchWithAuth("/api/send-emails", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          businesses: [{ name: lead.name, email: lead.email }],
-          emailBody,
+          businesses: coldLeadsOnPage.map((lead) => ({ name: lead.name, email: lead.email })),
+          emailBody: coldTemplate.content,
           subject: coldTemplate.subject,
           product_id: selectedProduct.id,
+          product_name: selectedProduct.name,
         }),
       });
       const sendData = await sendRes.json();
       if (!sendRes.ok) throw new Error(sendData.error || "Failed to send email.");
-      const result = sendData.results?.[0];
-      if (result?.status === "failed") {
-        throw new Error(`Failed to deliver email to ${lead.email}.`);
-      }
-      // Update lead status locally to WARM
-      setLeads((prev) =>
-        prev.map((l) => (l.id === lead.id ? { ...l, status: "WARM" as const } : l))
+
+      const sentCount = Number(sendData.sentCount) || 0;
+      const failedCount = Number(sendData.failedCount) || 0;
+      const sentEmails = new Set(
+        ((sendData.results ?? []) as Array<{ email: string; status: string }>)
+          .filter((r) => r.status === "sent")
+          .map((r) => r.email.toLowerCase())
       );
+      const failedEmails = new Set(
+        ((sendData.results ?? []) as Array<{ email: string; status: string }>)
+          .filter((r) => r.status === "failed")
+          .map((r) => r.email.toLowerCase())
+      );
+
+      setLeads((prev) =>
+        prev
+          .filter((lead) => !failedEmails.has(lead.email.toLowerCase()))
+          .map((lead) =>
+            sentEmails.has(lead.email.toLowerCase())
+              ? { ...lead, status: "WARM" as const }
+              : lead
+          )
+      );
+
+      setModalMessage(`Email sending complete. ${sentCount} sent, ${failedCount} failed.`);
     } catch (err: unknown) {
       setModalMessage(err instanceof Error ? err.message : "An unexpected error occurred.");
     } finally {
-      setSendingLeadId(null);
+      setSendingPageEmails(false);
     }
   }
 
@@ -1930,7 +1984,7 @@ function DashboardContent() {
                     <div>
                       <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>Daily Schedule</div>
                       <div style={{ fontSize: "0.82rem", color: "#64748b" }}>
-                        Automatically send the cold + follow-up emails to 200 cold leads daily.
+                        Automatically send the cold + follow-up emails to 100 cold leads daily.
                       </div>
                     </div>
                     <div style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", fontWeight: 600, fontSize: "0.9rem" }}>
@@ -1995,18 +2049,22 @@ function DashboardContent() {
                   <p className="loading-text">Loading leads…</p>
                 ) : leads.length === 0 ? (
                   <p className="empty-text">No leads yet for this product.</p>
-                ) : (() => {
-                  const filtered = leadStatusFilter === "ALL"
-                    ? leads
-                    : leads.filter((l) => l.status === leadStatusFilter);
-                  if (filtered.length === 0) {
-                    return <p className="empty-text">No {STATUS_LABELS[leadStatusFilter as LeadStatus]} leads.</p>;
-                  }
-                  const totalPages = Math.ceil(filtered.length / LEADS_PER_PAGE);
-                  const pageStart = (leadPage - 1) * LEADS_PER_PAGE;
-                  const paginated = filtered.slice(pageStart, pageStart + LEADS_PER_PAGE);
-                  return (
+                ) : filteredLeads.length === 0 ? (
+                  <p className="empty-text">No {STATUS_LABELS[leadStatusFilter as LeadStatus]} leads.</p>
+                ) : (
                     <>
+                      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "0.75rem" }}>
+                        <button
+                          type="button"
+                          className="btn-action btn-action--send-email"
+                          disabled={sendingPageEmails || coldLeadsOnPage.length === 0}
+                          onClick={handleSendColdLeadsOnPage}
+                        >
+                          <ActionIcon kind="send" />
+                          {sendingPageEmails ? "Sending..." : "Send Email"}
+                        </button>
+                      </div>
+
                       <table className="leads-table">
                         <thead>
                           <tr>
@@ -2018,7 +2076,7 @@ function DashboardContent() {
                           </tr>
                         </thead>
                         <tbody>
-                          {paginated.map((lead, i) => (
+                          {paginatedLeads.map((lead, i) => (
                             <tr key={lead.id}>
                               <td>{pageStart + i + 1}</td>
                               <td>{lead.name}</td>
@@ -2029,23 +2087,20 @@ function DashboardContent() {
                                 </span>
                               </td>
                               <td>
-                                {lead.status === "COLD" && (
-                                  <button
-                                    type="button"
-                                    className="btn-action btn-action--send-email"
-                                    disabled={sendingLeadId === lead.id}
-                                    onClick={() => handleSendColdEmail(lead)}
-                                  >
-                                    <ActionIcon kind="send" />
-                                    {sendingLeadId === lead.id ? "Sending…" : "Send Email"}
-                                  </button>
-                                )}
+                                <button
+                                  type="button"
+                                  className="btn-action btn-action--delete"
+                                  onClick={() => handleRemoveLead(lead)}
+                                >
+                                  <ActionIcon kind="delete" />
+                                  Remove
+                                </button>
                               </td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
-                      {totalPages > 1 && (
+                      {totalLeadPages > 1 && (
                         <div className="leads-pagination">
                           <button
                             className="leads-pagination__btn"
@@ -2055,20 +2110,19 @@ function DashboardContent() {
                             ← Prev
                           </button>
                           <span className="leads-pagination__info">
-                            Page {leadPage} of {totalPages} &nbsp;·&nbsp; {filtered.length} leads
+                            Page {leadPage} of {totalLeadPages} &nbsp;·&nbsp; {filteredLeads.length} leads
                           </span>
                           <button
                             className="leads-pagination__btn"
-                            disabled={leadPage === totalPages}
-                            onClick={() => setLeadPage((p) => p + 1)}
+                            disabled={leadPage === totalLeadPages}
+                            onClick={() => setLeadPage((p) => Math.min(totalLeadPages, p + 1))}
                           >
                             Next →
                           </button>
                         </div>
                       )}
                     </>
-                  );
-                })()}
+                  )}
               </>
             )}
           </div>
