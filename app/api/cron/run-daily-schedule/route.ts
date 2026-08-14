@@ -77,7 +77,7 @@ export async function GET(request: Request) {
       .select("name, email")
       .eq("product_id", product.id)
       .eq("status", "COLD")
-      .order("id")
+      .order("created_at", { ascending: true })
       .limit(200);
 
     if (leadsError) {
