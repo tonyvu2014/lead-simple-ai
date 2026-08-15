@@ -40,6 +40,25 @@ const PLAN_PRODUCT_LIMIT: Record<"Scale" | "Start" | "Free", number> = {
   Scale: 20,
 };
 
+function getCreatedAtTimestamp(value?: string) {
+  if (!value) return Number.POSITIVE_INFINITY;
+  const timestamp = new Date(value).getTime();
+  return Number.isNaN(timestamp) ? Number.POSITIVE_INFINITY : timestamp;
+}
+
+function formatDateAdded(value?: string) {
+  if (!value) return "-";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+
+  const pad = (num: number) => String(num).padStart(2, "0");
+  const hours24 = date.getHours();
+  const hours12 = hours24 % 12 || 12;
+  const period = hours24 >= 12 ? "PM" : "AM";
+  return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${hours12}:${pad(date.getMinutes())} ${period}`;
+}
+
 function ActionIcon({ kind }: { kind: "contacts" | "leads" | "find" | "edit" | "delete" | "send" | "email-config" }) {
   switch (kind) {
     case "contacts":
@@ -309,7 +328,9 @@ function DashboardContent() {
       const res = await fetchWithAuth(`/api/leads?product_id=${encodeURIComponent(selectedProduct.id)}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to fetch leads.");
-      setLeads(data.leads ?? []);
+      const fetchedLeads = (data.leads ?? []) as Lead[];
+      fetchedLeads.sort((a, b) => getCreatedAtTimestamp(a.created_at) - getCreatedAtTimestamp(b.created_at));
+      setLeads(fetchedLeads);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -2071,6 +2092,7 @@ function DashboardContent() {
                             <th>#</th>
                             <th>Name</th>
                             <th>Email</th>
+                            <th>Date Added</th>
                             <th>Status</th>
                             <th>Action</th>
                           </tr>
@@ -2081,6 +2103,7 @@ function DashboardContent() {
                               <td>{pageStart + i + 1}</td>
                               <td>{lead.name}</td>
                               <td>{lead.email}</td>
+                              <td>{formatDateAdded(lead.created_at)}</td>
                               <td>
                                 <span className={`badge badge--${lead.status.toLowerCase()}`}>
                                   {STATUS_LABELS[lead.status]}

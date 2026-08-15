@@ -115,18 +115,6 @@ function LeadsContent() {
   const [manualMode, setManualMode] = useState(false);
   const [manualEmailsError, setManualEmailsError] = useState("");
   const [savingLeads, setSavingLeads] = useState(false);
-  const [leadPage, setLeadPage] = useState(1);
-  const LEADS_PER_PAGE = 25;
-
-  const totalLeadPages = Math.max(1, Math.ceil(businesses.length / LEADS_PER_PAGE));
-  const pageStart = (leadPage - 1) * LEADS_PER_PAGE;
-  const paginatedBusinesses = businesses.slice(pageStart, pageStart + LEADS_PER_PAGE);
-
-  useEffect(() => {
-    if (leadPage > totalLeadPages) {
-      setLeadPage(totalLeadPages);
-    }
-  }, [leadPage, totalLeadPages]);
 
   function getWordCount(text: string) {
     return text.trim().split(/\s+/).filter(Boolean).length;
@@ -176,7 +164,6 @@ function LeadsContent() {
     if (!prompt.trim()) {
       setManualMode(true);
       setBusinesses([]);
-      setLeadPage(1);
       setShowResults(true);
       setSearching(false);
       return;
@@ -198,7 +185,6 @@ function LeadsContent() {
       }
 
       setBusinesses(data.businesses || []);
-      setLeadPage(1);
       setShowResults(true);
     } catch (err: any) {
       showError("Error: " + err.message);
@@ -276,7 +262,7 @@ function LeadsContent() {
       return;
     }
 
-    let emailsToSend: Business[] = paginatedBusinesses;
+    let emailsToSend: Business[] = businesses;
     if (manualMode) {
       // Parse manualEmails (comma separated)
       const emails = manualEmails
@@ -703,15 +689,15 @@ function LeadsContent() {
                   </tr>
                 </thead>
                 <tbody>
-                  {paginatedBusinesses.map((b, i) => (
+                  {businesses.map((b, i) => (
                     <tr key={i}>
-                      <td>{pageStart + i + 1}</td>
+                      <td>{i + 1}</td>
                       <td>{b.name}</td>
                       <td>{b.email}</td>
                       <td>
                         <button
                           type="button"
-                          onClick={() => handleRemoveLead(pageStart + i)}
+                          onClick={() => handleRemoveLead(i)}
                           style={{
                             background: "#ef4444",
                             color: "#fff",
@@ -730,32 +716,6 @@ function LeadsContent() {
                 </tbody>
               </table>
 
-              {totalLeadPages > 1 && (
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.75rem", gap: "0.75rem" }}>
-                  <button
-                    type="button"
-                    className="btn-export"
-                    onClick={() => setLeadPage((p) => Math.max(1, p - 1))}
-                    disabled={leadPage === 1}
-                    style={{ padding: "0.4rem 0.85rem" }}
-                  >
-                    ← Prev
-                  </button>
-                  <span style={{ fontSize: "0.9rem", color: "#555" }}>
-                    Page {leadPage} of {totalLeadPages} · {businesses.length} leads
-                  </span>
-                  <button
-                    type="button"
-                    className="btn-export"
-                    onClick={() => setLeadPage((p) => Math.min(totalLeadPages, p + 1))}
-                    disabled={leadPage === totalLeadPages}
-                    style={{ padding: "0.4rem 0.85rem" }}
-                  >
-                    Next →
-                  </button>
-                </div>
-              )}
-
               {!isProductLocked && (
                 <p style={{ marginTop: "1rem", fontSize: "0.9rem", color: "#555" }}>
                   To send or schedule emails to thousands more leads, register for early access to LeadDaily.App at{" "}
@@ -770,7 +730,7 @@ function LeadsContent() {
                     className="btn-send"
                     onClick={handleSend}
                     type="button"
-                    disabled={sending || paginatedBusinesses.length === 0}
+                    disabled={sending || businesses.length === 0}
                   >
                     {sending ? "Sending..." : "Send Email"}
                   </button>

@@ -71,7 +71,7 @@ async function updateLeadStatuses(productId: string, emails: string[], status: "
       .from("leads")
       .update({ status })
       .eq("product_id", productId)
-      .in("email", batch);
+      .in("email",  );
 
     if (error) {
       throw error;

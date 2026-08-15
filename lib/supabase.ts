@@ -49,6 +49,7 @@ export interface Lead {
   name: string;
   email: string;
   status: LeadStatus;
+  created_at?: string;
 }
 
 export interface Contact {
